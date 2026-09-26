@@ -7,6 +7,8 @@ Enter a width and height, pick a centre, and the mod shows every block of the sh
 that line up in a straight line are merged into one **connected section** and labelled like a CAD drawing: `7 by 1`,
 `4 by 3`, and so on. It never places, breaks or changes real blocks, and it doesn't spawn entities.
 
+![A 15×15 outline circle with connected sections, dimension lines and pop-up labels](docs/screenshots/0002_circle_15_outline_closeup.jpg)
+
 ## Features
 
 - **Circles and ovals** of any size from 1×1 up to 1024×1024, filled or outline only. The shapes are symmetric,
@@ -32,6 +34,15 @@ that line up in a straight line are merged into one **connected section** and la
 - **Centre selection mode** with a pulsing marker and a preview of the shape's footprint.
 - **A single settings screen** with three panels (Circle, Dimensions, Position). It doesn't pause the game, so you see
   each change on the hologram straight away.
+
+| | |
+|---|---|
+| ![Settings screen](docs/screenshots/0000_how_to_circle_gui.jpg) | ![Filled 15×15 circle](docs/screenshots/0004_circle_15_filled_closeup.jpg) |
+| ![21×12 oval with a 1×2 centre](docs/screenshots/0008_oval_21x12_mixed_parity.jpg) | ![Vertical (wall) circle](docs/screenshots/0012_vertical_wall.jpg) |
+| ![Centre selection mode](docs/screenshots/0015_centre_selection_marker.jpg) | ![100×100 outline circle](docs/screenshots/0014_circle_100_outline.jpg) |
+
+These are real screenshots taken by the client game test in Minecraft 26.2. The full set is in
+[`docs/screenshots`](docs/screenshots).
 
 ## Installing
 
@@ -63,18 +74,22 @@ You can change these under *Options → Controls → Key Binds → How to Circle
 
 **Circle Settings**
 - **W / H**: width and height in blocks. In *Circle* mode the height follows the width.
-- **Shape**: Circle or Oval.
-- **Fill**: Outline or Filled.
+- **Circle / Oval** and **Outline / Filled** toggles.
 - **Centre**: Auto, 1×1 or 2×2. The button shows the resulting centre, and any size adjustment appears in yellow.
-- **Centre extends**: for even or mixed sizes, which neighbour of the selected block makes up the rest of the centre
-  (for example *East South*).
-- **Generate**, **Clear**, plus a live summary of the size, block count and section count.
+- **Extends**: for even or mixed sizes, which neighbour of the selected block makes up the rest of the centre (for
+  example *East South*).
+- A live summary of the size, centre, block count and section count.
+- **Hologram colour**: preset swatches or any hex colour.
+- **Generate** and **Clear**.
 
 **Dimension Settings**
-- Toggles for dimension labels, pop-up holograms and *pop-ups face player*.
-- **Label format**: *long by short* (`5 by 1`) or *width by height* (`1 by 5`).
+- Toggles for dimension labels, pop-up holograms and *face player*.
+- **Labels**: `5 by 1` (longest side first) or `1 by 5` (width, then height).
 - Sliders for text size, label offset (pop-up height), label opacity and hologram opacity.
-- **Hologram colour**: preset swatches or any hex colour.
+
+When pop-ups are on, each dimension line shows just its measurement (`5`) and the pop-up above shows `5 by 1`. When
+pop-ups are off, the dimension lines show the full `5 by 1`. Labels appear within 64 blocks and pop-ups within 40 blocks
+(configurable in the JSON file).
 
 **Position Settings**
 - The current centre coordinates, **Select centre** and **Use my position**.
@@ -82,8 +97,10 @@ You can change these under *Options → Controls → Key Binds → How to Circle
   - ON: the centre is the block you stand in.
   - OFF: even-sized centres snap to the block corner nearest your exact position.
 - **▲ Up / ▼ Down** moves the hologram vertically. Click the offset value to reset it.
-- **Rotate** turns the hologram 90°. **Plane** switches between floor (horizontal) and wall (vertical) orientation.
-- **Reset position**, **Block grid** and **See through blocks**.
+- **Rotate** turns the hologram 90°. **Floor / Wall** switches between horizontal and vertical orientation.
+- **Reset position**.
+- **Grid** shows the lines between individual blocks.
+- **X-ray** draws the hologram and labels through terrain.
 
 Settings are saved to `config/how-to-circle.json`. The hologram itself only lasts for the current world session.
 
@@ -128,7 +145,9 @@ exactly one section. A 100×100 circle (7,860 blocks) becomes 59 sections when f
 - There are no entities and no block changes.
 
 The client game test measures the render callback's CPU time for 100×100 circles and fails if it goes over 25 ms per
-frame. Measured numbers are listed below.
+frame. On the GitHub Actions runner, which uses software OpenGL, the measurements were:
+- filled (59 sections): about 0.37 ms per frame;
+- outline (116 sections): about 0.25 ms per frame.
 
 ## Building
 
@@ -180,6 +199,8 @@ src/gametest/java/    Fabric client game test (real client, screenshots)
   - finally checks that no real block in the area changed.
 
   Screenshots are saved to `build/run/clientGameTest/screenshots` and uploaded as a CI artifact.
+
+GitHub Actions (`.github/workflows/build.yml`) runs `./gradlew build` and the client game test on every push.
 
 ## License
 
