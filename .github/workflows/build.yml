@@ -84,7 +84,7 @@ jobs:
           path: shots
       - name: print previews
         run: |
-          sudo apt-get install -y imagemagick >/dev/null 2>&1 || true
+          sudo apt-get update -q >/dev/null && sudo apt-get install -y -q imagemagick >/dev/null
           for f in shots/*.png; do
             convert "$f" -resize 480x -quality 55 "${f%.png}.jpg"
             echo "=====BEGIN $(basename "${f%.png}")"
