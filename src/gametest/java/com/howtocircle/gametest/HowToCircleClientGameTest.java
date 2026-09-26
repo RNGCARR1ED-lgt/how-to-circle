@@ -43,6 +43,8 @@ public class HowToCircleClientGameTest implements FabricClientGameTest {
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
 			this.singleplayer = singleplayer;
 			singleplayer.getServer().runCommand("time set noon");
+			// Creative + flying: the camera stays where it is teleported and the player cannot take fall damage.
+			singleplayer.getServer().runCommand("gamemode creative @a");
 			singleplayer.getServer().runCommand("tp @a 0.5 -60 0.5 0 90");
 			singleplayer.getConnection().waitForChunksRender();
 			context.waitTicks(5);
@@ -94,6 +96,9 @@ public class HowToCircleClientGameTest implements FabricClientGameTest {
 	private TestSingleplayerContext singleplayer;
 
 	private void view(ClientGameTestContext context, String tp) {
+		context.runOnClient(client -> {
+			if (client.player != null) client.player.getAbilities().flying = true;
+		});
 		singleplayer.getServer().runCommand("tp @a " + tp);
 		// Give the client time to receive the new position and render a few frames.
 		context.waitTicks(15);
@@ -251,6 +256,7 @@ public class HowToCircleClientGameTest implements FabricClientGameTest {
 		context.runOnClient(client -> HologramManager.get().clear());
 		singleplayer.getServer().runCommand("tp @a 3.5 -60 5.5 0 90");
 		context.waitTicks(10);
+		check(context.computeOnClient(client -> client.gui.screen() == null), "No screen is open before pressing the select key");
 		context.getInput().pressKey(KeyBindings.SELECT_CENTRE);
 		context.waitTicks(3);
 		check(context.computeOnClient(client -> CentreSelectionHandler.get().isActive()), "Select key enters centre selection mode");
