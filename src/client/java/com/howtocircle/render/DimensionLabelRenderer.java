@@ -210,7 +210,8 @@ public final class DimensionLabelRenderer {
 		int o = section * 6;
 		float sizeX = g.boxes[o + 3] - g.boxes[o];
 		float sizeZ = g.boxes[o + 5] - g.boxes[o + 2];
-		boolean runsAlongX = sizeX >= sizeZ;
+		// On a wall the text faces out of the wall; on a floor it runs along the section's longer side.
+		boolean runsAlongX = g.axisN == 1 ? sizeX >= sizeZ : g.axisN == 2;
 
 		if (runsAlongX) {
 			float centreZ = (g.boxes[o + 2] + g.boxes[o + 5]) * 0.5F;

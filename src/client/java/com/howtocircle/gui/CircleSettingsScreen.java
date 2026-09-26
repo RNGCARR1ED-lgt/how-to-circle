@@ -13,6 +13,8 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.narration.NarratableEntry;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.BlockPos;
@@ -45,6 +47,7 @@ public final class CircleSettingsScreen extends Screen {
 
 	private final HowToCircleConfig config = HowToCircleConfig.get();
 	private final List<Runnable> refreshers = new ArrayList<>();
+	private final List<Renderable> widgets = new ArrayList<>();
 	private final List<Slider> sliders = new ArrayList<>();
 	private final List<int[]> panels = new ArrayList<>();
 	private final List<String> panelTitles = new ArrayList<>();
@@ -73,6 +76,7 @@ public final class CircleSettingsScreen extends Screen {
 	@Override
 	protected void init() {
 		refreshers.clear();
+		widgets.clear();
 		sliders.clear();
 		panels.clear();
 		panelTitles.clear();
@@ -88,7 +92,7 @@ public final class CircleSettingsScreen extends Screen {
 		buildDimensionPanel(left + columnWidth + gap, top, inner);
 		buildPositionPanel(left + 2 * (columnWidth + gap), top, inner);
 
-		addRenderableWidget(Button.builder(Component.translatable("gui.done"), b -> onClose())
+		widget(Button.builder(Component.translatable("gui.done"), b -> onClose())
 				.bounds(left + total - 60, 4, 60, CONTROL_HEIGHT).build());
 
 		refreshAll();
@@ -106,13 +110,13 @@ public final class CircleSettingsScreen extends Screen {
 		widthBox.setMaxLength(4);
 		widthBox.setValue(Integer.toString(config.width));
 		widthBox.setResponder(value -> onDimensionTyped(value, true));
-		addRenderableWidget(widthBox);
+		widget(widthBox);
 
 		heightBox = new EditBox(font, px + half + 4 + labelWidth, y, half - labelWidth, CONTROL_HEIGHT, Component.translatable("gui.how-to-circle.height"));
 		heightBox.setMaxLength(4);
 		heightBox.setValue(Integer.toString(config.height));
 		heightBox.setResponder(value -> onDimensionTyped(value, false));
-		addRenderableWidget(heightBox);
+		widget(heightBox);
 		y += ROW;
 
 		cycle(px, y, inner, () -> Component.translatable("gui.how-to-circle.mode",
@@ -150,10 +154,10 @@ public final class CircleSettingsScreen extends Screen {
 		y += 4 * 10 + 4;
 
 		int buttonWidth = (inner - 4) / 2;
-		addRenderableWidget(Button.builder(Component.translatable("gui.how-to-circle.generate"), b -> generate())
+		widget(Button.builder(Component.translatable("gui.how-to-circle.generate"), b -> generate())
 				.bounds(px, y, buttonWidth, CONTROL_HEIGHT)
 				.tooltip(Tooltip.create(Component.translatable("gui.how-to-circle.generate.tooltip"))).build());
-		addRenderableWidget(Button.builder(Component.translatable("gui.how-to-circle.clear"), b -> {
+		widget(Button.builder(Component.translatable("gui.how-to-circle.clear"), b -> {
 			HologramManager.get().clear();
 			refreshAll();
 		}).bounds(px + buttonWidth + 4, y, buttonWidth, CONTROL_HEIGHT).build());
@@ -297,7 +301,7 @@ public final class CircleSettingsScreen extends Screen {
 				// keep the previous colour until the field holds a valid hex value
 			}
 		});
-		addRenderableWidget(colorBox);
+		widget(colorBox);
 		y += ROW;
 
 		addPanel(x, top, inner, y, "gui.how-to-circle.section.dimensions");
@@ -313,14 +317,14 @@ public final class CircleSettingsScreen extends Screen {
 		positionInfoY = y + 1;
 		y += 2 * 10 + 4;
 
-		addRenderableWidget(Button.builder(Component.translatable("gui.how-to-circle.select_centre"), b -> {
+		widget(Button.builder(Component.translatable("gui.how-to-circle.select_centre"), b -> {
 			HowToCircleConfig.save();
 			minecraft.gui.setScreen(null);
 			CentreSelectionHandler.get().start(true);
 		}).bounds(px, y, inner, CONTROL_HEIGHT).tooltip(Tooltip.create(Component.translatable("gui.how-to-circle.select_centre.tooltip"))).build());
 		y += ROW;
 
-		addRenderableWidget(Button.builder(Component.translatable("gui.how-to-circle.use_position"), b -> {
+		widget(Button.builder(Component.translatable("gui.how-to-circle.use_position"), b -> {
 			HologramManager.get().setAnchorToPlayer();
 			config.showHologram = true;
 			refreshAll();
@@ -332,11 +336,11 @@ public final class CircleSettingsScreen extends Screen {
 		y += ROW;
 
 		int third = (inner - 8) / 3;
-		addRenderableWidget(Button.builder(Component.translatable("gui.how-to-circle.up"), b -> {
+		widget(Button.builder(Component.translatable("gui.how-to-circle.up"), b -> {
 			config.verticalOffset++;
 			refreshAll();
 		}).bounds(px, y, third, CONTROL_HEIGHT).build());
-		addRenderableWidget(Button.builder(Component.translatable("gui.how-to-circle.down"), b -> {
+		widget(Button.builder(Component.translatable("gui.how-to-circle.down"), b -> {
 			config.verticalOffset--;
 			refreshAll();
 		}).bounds(px + third + 4, y, third, CONTROL_HEIGHT).build());
@@ -345,7 +349,7 @@ public final class CircleSettingsScreen extends Screen {
 			refreshAll();
 		}).bounds(px + 2 * (third + 4), y, inner - 2 * (third + 4), CONTROL_HEIGHT)
 				.tooltip(Tooltip.create(Component.translatable("gui.how-to-circle.offset.tooltip"))).build();
-		addRenderableWidget(offset);
+		widget(offset);
 		refreshers.add(() -> offset.setMessage(Component.literal(String.format(Locale.ROOT, "%+d", config.verticalOffset))));
 		y += ROW;
 
@@ -354,18 +358,18 @@ public final class CircleSettingsScreen extends Screen {
 			config.rotated = !config.rotated;
 			refreshAll();
 		}).bounds(px, y, half, CONTROL_HEIGHT).build();
-		addRenderableWidget(rotate);
+		widget(rotate);
 		refreshers.add(() -> rotate.setMessage(Component.translatable("gui.how-to-circle.rotate", config.rotated ? 90 : 0)));
 		Button plane = Button.builder(Component.empty(), b -> {
 			config.plane = config.plane.next();
 			refreshAll();
 		}).bounds(px + half + 4, y, inner - half - 4, CONTROL_HEIGHT).build();
-		addRenderableWidget(plane);
+		widget(plane);
 		refreshers.add(() -> plane.setMessage(Component.translatable(config.plane == ShapePlacement.Plane.HORIZONTAL
 				? "gui.how-to-circle.plane.horizontal" : "gui.how-to-circle.plane.vertical")));
 		y += ROW;
 
-		addRenderableWidget(Button.builder(Component.translatable("gui.how-to-circle.reset_position"), b -> {
+		widget(Button.builder(Component.translatable("gui.how-to-circle.reset_position"), b -> {
 			config.verticalOffset = 0;
 			config.rotated = false;
 			config.plane = ShapePlacement.Plane.HORIZONTAL;
@@ -391,6 +395,12 @@ public final class CircleSettingsScreen extends Screen {
 
 	// ---------------------------------------------------------------- Widget helpers
 
+	/** Adds a widget to the screen and remembers it so it can be drawn on top of the panels. */
+	private <T extends GuiEventListener & Renderable & NarratableEntry> T widget(T widget) {
+		widgets.add(widget);
+		return addRenderableWidget(widget);
+	}
+
 	private Button toggle(int x, int y, int width, String key, BooleanSupplier value, Runnable action) {
 		return toggle(x, y, width, key, value, action, null);
 	}
@@ -406,7 +416,7 @@ public final class CircleSettingsScreen extends Screen {
 		}
 
 		Button button = builder.build();
-		addRenderableWidget(button);
+		widget(button);
 		refreshers.add(() -> button.setMessage(Component.translatable(key,
 				Component.translatable(value.getAsBoolean() ? "options.on" : "options.off"))));
 		return button;
@@ -417,7 +427,7 @@ public final class CircleSettingsScreen extends Screen {
 			action.run();
 			refreshAll();
 		}).bounds(x, y, width, CONTROL_HEIGHT).tooltip(Tooltip.create(Component.translatable(tooltipKey))).build();
-		addRenderableWidget(button);
+		widget(button);
 		refreshers.add(() -> button.setMessage(label.get()));
 		return button;
 	}
@@ -474,7 +484,7 @@ public final class CircleSettingsScreen extends Screen {
 
 		drawSwatches(graphics, mouseX, mouseY);
 
-		for (Renderable renderable : renderables) {
+		for (Renderable renderable : widgets) {
 			renderable.extractRenderState(graphics, mouseX, mouseY, delta);
 		}
 	}
