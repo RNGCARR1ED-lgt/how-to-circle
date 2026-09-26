@@ -70,24 +70,32 @@ jobs:
             build/run/clientGameTest/logs/
             build/run/clientGameTest/crash-reports/
 
-  # Prints small JPEG previews of the client game test screenshots as base64 in the job log,
-  # so they can be reviewed from environments that cannot download artifacts.
-  screenshot_preview:
+  # Temporary: commits downscaled game test screenshots to docs/screenshots when the head commit
+  # message contains [screenshots], so they can be reviewed and used in the README.
+  publish_screenshots:
     needs: client_game_test
-    if: always()
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[screenshots]')
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
       - name: download screenshots
         uses: actions/download-artifact@v8
         with:
           name: client-game-test-screenshots
           path: shots
-      - name: print previews
+      - name: convert and commit
         run: |
           sudo apt-get update -q >/dev/null && sudo apt-get install -y -q imagemagick >/dev/null
+          mkdir -p docs/screenshots
+          rm -f docs/screenshots/*.jpg
           for f in shots/*.png; do
-            convert "$f" -resize 480x -quality 55 "${f%.png}.jpg"
-            echo "=====BEGIN $(basename "${f%.png}")"
-            base64 -w 76 "${f%.png}.jpg"
-            echo "=====END"
+            convert "$f" -resize 960x -quality 82 "docs/screenshots/$(basename "${f%.png}").jpg"
           done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          git commit -m "Add client game test screenshots [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
