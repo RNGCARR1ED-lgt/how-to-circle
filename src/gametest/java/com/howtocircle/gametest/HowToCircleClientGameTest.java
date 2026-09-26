@@ -45,6 +45,8 @@ public class HowToCircleClientGameTest implements FabricClientGameTest {
 			singleplayer.getServer().runCommand("time set noon");
 			// Creative + flying: the camera stays where it is teleported and the player cannot take fall damage.
 			singleplayer.getServer().runCommand("gamemode creative @a");
+			// Let the game mode chat message fade out so it does not cover the screenshots.
+			context.waitTicks(220);
 			singleplayer.getServer().runCommand("tp @a 0.5 -60 0.5 0 90");
 			singleplayer.getConnection().waitForChunksRender();
 			context.waitTicks(5);

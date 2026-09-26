@@ -179,6 +179,8 @@ public final class DimensionLabelRenderer {
 		PoseStack poseStack = context.poseStack();
 		float fade = Math.min(1F, dt * FADE_SPEED);
 		int bgRgb = config.labelBackgroundColor;
+		// Depth-tested text stays crisp in front of the translucent hologram; in X-ray mode labels show through terrain too.
+		Font.DisplayMode displayMode = config.seeThroughBlocks ? Font.DisplayMode.SEE_THROUGH : Font.DisplayMode.NORMAL;
 		int textRgb = config.labelColor;
 
 		for (int i = 0; i < total; i++) {
@@ -204,7 +206,7 @@ public final class DimensionLabelRenderer {
 			poseStack.translate(rx[i] + ux * shift, ry[i] + uy * shift, rz[i] + uz * shift);
 			poseStack.mulPose(popup && !config.popupsFacePlayer ? fixedOrientation(g, i, camLocal) : billboard);
 			poseStack.scale(scale[i], -scale[i], scale[i]);
-			collector.submitText(poseStack, -width / 2F, -4.5F, text, false, Font.DisplayMode.SEE_THROUGH, FULL_BRIGHT, color, background, 0);
+			collector.submitText(poseStack, -width / 2F, -4.5F, text, false, displayMode, FULL_BRIGHT, color, background, 0);
 			poseStack.popPose();
 		}
 	}
