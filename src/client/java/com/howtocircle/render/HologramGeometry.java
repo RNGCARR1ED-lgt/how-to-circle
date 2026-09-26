@@ -61,6 +61,12 @@ public final class HologramGeometry {
 	public final int[] lineSection;
 	public final FormattedCharSequence[] lineText;
 	public final int[] lineTextWidth;
+	/**
+	 * Per dimension line: the measurement alone ("7"), used when pop-ups already show the full "7 by 1". {@code null}
+	 * for single blocks, whose pop-up says everything.
+	 */
+	public final FormattedCharSequence[] lineShortText;
+	public final int[] lineShortTextWidth;
 
 	private HologramGeometry(Builder b) {
 		anchor = b.anchor;
@@ -88,6 +94,8 @@ public final class HologramGeometry {
 		lineSection = b.lineSection;
 		lineText = b.lineText;
 		lineTextWidth = b.lineTextWidth;
+		lineShortText = b.lineShortText;
+		lineShortTextWidth = b.lineShortTextWidth;
 	}
 
 	public static int axisIndex(ShapePlacement.Axis axis) {
@@ -129,6 +137,8 @@ public final class HologramGeometry {
 		b.lineSection = new int[count * 2];
 		b.lineText = new FormattedCharSequence[count * 2];
 		b.lineTextWidth = new int[count * 2];
+		b.lineShortText = new FormattedCharSequence[count * 2];
+		b.lineShortTextWidth = new int[count * 2];
 
 		for (int i = 0; i < count; i++) {
 			ConnectedSection s = b.sections[i];
@@ -149,11 +159,14 @@ public final class HologramGeometry {
 			float lineU = outwardU < 0 ? u0 - DIMENSION_GAP : u1 + DIMENSION_GAP;
 
 			switch (s.kind()) {
-				case SINGLE, LINE_ALONG_WIDTH -> b.addLine(i, b.axisU, u0, u1, b.axisV, lineV, outwardV, full, font);
-				case LINE_ALONG_HEIGHT -> b.addLine(i, b.axisV, v0, v1, b.axisU, lineU, outwardU, full, font);
+				case SINGLE -> b.addLine(i, b.axisU, u0, u1, b.axisV, lineV, outwardV, full, null, font);
+				case LINE_ALONG_WIDTH -> b.addLine(i, b.axisU, u0, u1, b.axisV, lineV, outwardV, full, DimensionLabel.side(s.width()), font);
+				case LINE_ALONG_HEIGHT -> b.addLine(i, b.axisV, v0, v1, b.axisU, lineU, outwardU, full, DimensionLabel.side(s.height()), font);
 				case RECTANGLE -> {
-					b.addLine(i, b.axisU, u0, u1, b.axisV, lineV, outwardV, DimensionLabel.side(s.width()), font);
-					b.addLine(i, b.axisV, v0, v1, b.axisU, lineU, outwardU, DimensionLabel.side(s.height()), font);
+					String w = DimensionLabel.side(s.width());
+					String h = DimensionLabel.side(s.height());
+					b.addLine(i, b.axisU, u0, u1, b.axisV, lineV, outwardV, w, w, font);
+					b.addLine(i, b.axisV, v0, v1, b.axisU, lineU, outwardU, h, h, font);
 				}
 			}
 		}
@@ -211,8 +224,10 @@ public final class HologramGeometry {
 		int[] lineSection;
 		FormattedCharSequence[] lineText;
 		int[] lineTextWidth;
+		FormattedCharSequence[] lineShortText;
+		int[] lineShortTextWidth;
 
-		void addLine(int section, int along, float from, float to, int across, float pos, float outward, String text, Font font) {
+		void addLine(int section, int along, float from, float to, int across, float pos, float outward, String text, String shortText, Font font) {
 			int i = lineCount++;
 			lineSection[i] = section;
 			lineAlong[i] = along;
@@ -223,6 +238,11 @@ public final class HologramGeometry {
 			lineOutward[i] = outward;
 			lineText[i] = Component.literal(text).getVisualOrderText();
 			lineTextWidth[i] = font.width(text);
+
+			if (shortText != null) {
+				lineShortText[i] = Component.literal(shortText).getVisualOrderText();
+				lineShortTextWidth[i] = font.width(shortText);
+			}
 		}
 	}
 }

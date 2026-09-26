@@ -43,7 +43,7 @@ public final class CircleSettingsScreen extends Screen {
 	private static final int TEXT = 0xFFE6F2F5;
 	private static final int MUTED = 0xFF9DB3BA;
 	private static final int WARNING = 0xFFFFC857;
-	private static final int COLOR_BOX_WIDTH = 60;
+	private static final int COLOR_BOX_WIDTH = 52;
 
 	private final HowToCircleConfig config = HowToCircleConfig.get();
 	private final List<Runnable> refreshers = new ArrayList<>();
@@ -85,7 +85,7 @@ public final class CircleSettingsScreen extends Screen {
 		int columnWidth = Math.max(110, Math.min(176, (this.width - 16 - 2 * gap) / 3));
 		int total = columnWidth * 3 + gap * 2;
 		int left = (this.width - total) / 2;
-		int top = 26;
+		int top = 24;
 		int inner = columnWidth - 2 * PADDING;
 
 		buildCirclePanel(left, top, inner);
@@ -93,7 +93,7 @@ public final class CircleSettingsScreen extends Screen {
 		buildPositionPanel(left + 2 * (columnWidth + gap), top, inner);
 
 		widget(Button.builder(Component.translatable("gui.done"), b -> onClose())
-				.bounds(left + total - 60, 4, 60, CONTROL_HEIGHT).build());
+				.bounds(left + total - 50, 2, 50, CONTROL_HEIGHT).build());
 
 		refreshAll();
 	}
@@ -119,8 +119,7 @@ public final class CircleSettingsScreen extends Screen {
 		widget(heightBox);
 		y += ROW;
 
-		cycle(px, y, inner, () -> Component.translatable("gui.how-to-circle.mode",
-				Component.translatable(config.shapeType == ShapeType.CIRCLE ? "gui.how-to-circle.mode.circle" : "gui.how-to-circle.mode.oval")),
+		cycle(px, y, half, () -> Component.translatable(config.shapeType == ShapeType.CIRCLE ? "gui.how-to-circle.mode.circle" : "gui.how-to-circle.mode.oval"),
 				() -> {
 					config.shapeType = config.shapeType.next();
 
@@ -128,10 +127,8 @@ public final class CircleSettingsScreen extends Screen {
 						config.height = config.width;
 					}
 				}, "gui.how-to-circle.mode.tooltip");
-		y += ROW;
-
-		cycle(px, y, inner, () -> Component.translatable("gui.how-to-circle.fill",
-				Component.translatable("gui.how-to-circle.fill." + config.fillMode.name().toLowerCase(Locale.ROOT))),
+		cycle(px + half + 4, y, inner - half - 4,
+				() -> Component.translatable("gui.how-to-circle.fill." + config.fillMode.name().toLowerCase(Locale.ROOT)),
 				() -> config.fillMode = config.fillMode.next(), "gui.how-to-circle.fill.tooltip");
 		y += ROW;
 
@@ -151,7 +148,15 @@ public final class CircleSettingsScreen extends Screen {
 		circleInfoX = px;
 		circleInfoY = y + 1;
 		circleInfoWidth = inner;
-		y += 4 * 10 + 4;
+		y += 3 * 10 + 2;
+
+		// Colour selector: preset swatches and a hex field.
+		swatchX = px;
+		swatchY = y + 1;
+		swatchSize = Math.max(6, Math.min(12, (inner - 9) / HowToCircleConfig.COLOR_PRESETS.length));
+		y += swatchSize + 4;
+		buildColorBox(px, y);
+		y += ROW;
 
 		int buttonWidth = (inner - 4) / 2;
 		widget(Button.builder(Component.translatable("gui.how-to-circle.generate"), b -> generate())
@@ -281,12 +286,10 @@ public final class CircleSettingsScreen extends Screen {
 				() -> config.hologramOpacity, v -> config.hologramOpacity = (float) v, Slider::percent));
 		y += ROW;
 
-		// Colour selector: preset swatches and a hex field.
-		swatchX = px;
-		swatchY = y + 11;
-		swatchSize = Math.min(12, (inner - 9) / HowToCircleConfig.COLOR_PRESETS.length);
-		y += 11 + swatchSize + 4;
+		addPanel(x, top, inner, y, "gui.how-to-circle.section.dimensions");
+	}
 
+	private void buildColorBox(int px, int y) {
 		colorBox = new EditBox(font, px + font.width("#") + 3, y, COLOR_BOX_WIDTH, CONTROL_HEIGHT, Component.translatable("gui.how-to-circle.color"));
 		colorBox.setMaxLength(6);
 		colorBox.setValue(String.format(Locale.ROOT, "%06X", config.hologramColor));
@@ -302,9 +305,6 @@ public final class CircleSettingsScreen extends Screen {
 			}
 		});
 		widget(colorBox);
-		y += ROW;
-
-		addPanel(x, top, inner, y, "gui.how-to-circle.section.dimensions");
 	}
 
 	// ---------------------------------------------------------------- Position settings
@@ -384,10 +384,11 @@ public final class CircleSettingsScreen extends Screen {
 		}).bounds(px, y, inner, CONTROL_HEIGHT).tooltip(Tooltip.create(Component.translatable("gui.how-to-circle.reset_position.tooltip"))).build());
 		y += ROW;
 
-		toggle(px, y, inner, "gui.how-to-circle.block_grid", () -> config.showBlockGrid, () -> config.showBlockGrid = !config.showBlockGrid);
-		y += ROW;
-		toggle(px, y, inner, "gui.how-to-circle.see_through", () -> config.seeThroughBlocks, () -> config.seeThroughBlocks = !config.seeThroughBlocks,
-				"gui.how-to-circle.see_through.tooltip");
+		int halfWidth = (inner - 4) / 2;
+		toggle(px, y, halfWidth, "gui.how-to-circle.block_grid", () -> config.showBlockGrid, () -> config.showBlockGrid = !config.showBlockGrid,
+				"gui.how-to-circle.block_grid.tooltip");
+		toggle(px + halfWidth + 4, y, inner - halfWidth - 4, "gui.how-to-circle.see_through", () -> config.seeThroughBlocks,
+				() -> config.seeThroughBlocks = !config.seeThroughBlocks, "gui.how-to-circle.see_through.tooltip");
 		y += ROW;
 
 		addPanel(x, top, inner, y, "gui.how-to-circle.section.position");
@@ -510,12 +511,12 @@ public final class CircleSettingsScreen extends Screen {
 		int lines = 0;
 
 		for (String note : dims.notes()) {
-			if (lines++ >= 2) break;
+			if (lines++ >= 1) break;
 			graphics.text(font, fit(note), circleInfoX, y, WARNING, false);
 			y += 10;
 		}
 
-		if (dims.mixedParity() && lines < 2) {
+		if (dims.mixedParity() && lines < 1) {
 			graphics.text(font, fit(Component.translatable("gui.how-to-circle.info.mixed", dims.centreLabel()).getString()), circleInfoX, y, WARNING, false);
 		}
 	}
@@ -545,7 +546,6 @@ public final class CircleSettingsScreen extends Screen {
 	}
 
 	private void drawSwatches(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-		graphics.text(font, Component.translatable("gui.how-to-circle.color").getString(), swatchX, swatchY - 10, MUTED, false);
 		int[] presets = HowToCircleConfig.COLOR_PRESETS;
 
 		for (int i = 0; i < presets.length; i++) {

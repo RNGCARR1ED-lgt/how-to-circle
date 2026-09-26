@@ -186,7 +186,7 @@ public final class HologramRenderer {
 			}
 
 			if (DimensionLabelRenderer.dimensionLinesEnabled()) {
-				dimensionLines(g, cam, face, colors.dimension());
+				dimensionLines(g, cam, face, colors.dimension(), DimensionLabelRenderer.popupsEnabled());
 			}
 		}
 
@@ -212,10 +212,13 @@ public final class HologramRenderer {
 		}
 
 		/** CAD-style dimension lines: a line parallel to the measured side with ticks at both ends. */
-		private void dimensionLines(HologramGeometry g, float[] cam, float face, int color) {
+		private void dimensionLines(HologramGeometry g, float[] cam, float face, int color, boolean popups) {
 			int n = g.axisN;
 
 			for (int i = 0; i < g.dimensionLineCount; i++) {
+				// Single blocks are fully described by their pop-up; skip their dimension line to reduce clutter.
+				if (popups && g.lineShortText[i] == null) continue;
+
 				float midAlong = (g.lineFrom[i] + g.lineTo[i]) * 0.5F;
 				float dx = cam[g.lineAlong[i]] - midAlong;
 				float dy = cam[g.lineAcross[i]] - g.linePos[i];

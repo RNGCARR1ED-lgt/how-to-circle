@@ -63,6 +63,10 @@ public final class DimensionLabelRenderer {
 		return HowToCircleConfig.get().showDimensions;
 	}
 
+	public static boolean popupsEnabled() {
+		return HowToCircleConfig.get().showPopups;
+	}
+
 	public static float labelRange() {
 		return HowToCircleConfig.get().labelDistance;
 	}
@@ -139,7 +143,8 @@ public final class DimensionLabelRenderer {
 				p[g.lineAlong[line]] = (g.lineFrom[line] + g.lineTo[line]) * 0.5F;
 				p[g.lineAcross[line]] = g.linePos[line] + g.lineOutward[line] * 0.35F;
 				p[n] = labelLift;
-				enabled = config.showDimensions;
+				// With pop-ups on, the line shows only its measurement; single blocks rely on their pop-up.
+				enabled = config.showDimensions && (!config.showPopups || g.lineShortText[line] != null);
 			}
 
 			double dx = ax + p[0];
@@ -158,7 +163,7 @@ public final class DimensionLabelRenderer {
 
 			if (!enabled || dist > range || zf < 0.2) continue;
 
-			int textWidth = popup ? g.sectionTextWidth[i] : g.lineTextWidth[i - popupCount];
+			int textWidth = popup ? g.sectionTextWidth[i] : lineWidth(g, i - popupCount, config.showPopups);
 			double halfW = (textWidth * 0.5 + 2) * scale[i] / zf;
 			double halfH = 5.5 * scale[i] / zf;
 			double sx = (dx * rgx + dz * rgz) / zf;
@@ -188,8 +193,10 @@ public final class DimensionLabelRenderer {
 
 			boolean popup = i < popupCount;
 			double shift = slot >= 0 ? layout.shiftY(slot) * depth[i] : 0;
-			FormattedCharSequence text = popup ? g.sectionText[i] : g.lineText[i - popupCount];
-			int width = popup ? g.sectionTextWidth[i] : g.lineTextWidth[i - popupCount];
+			FormattedCharSequence text = popup ? g.sectionText[i] : lineText(g, i - popupCount, config.showPopups);
+			int width = popup ? g.sectionTextWidth[i] : lineWidth(g, i - popupCount, config.showPopups);
+
+			if (text == null) continue;
 			int background = ARGB.color(Math.round(255 * a * (popup ? 0.62F : 0.45F)), ARGB.red(bgRgb), ARGB.green(bgRgb), ARGB.blue(bgRgb));
 			int color = ARGB.color(textAlpha, ARGB.red(textRgb), ARGB.green(textRgb), ARGB.blue(textRgb));
 
@@ -200,6 +207,14 @@ public final class DimensionLabelRenderer {
 			collector.submitText(poseStack, -width / 2F, -4.5F, text, false, Font.DisplayMode.SEE_THROUGH, FULL_BRIGHT, color, background, 0);
 			poseStack.popPose();
 		}
+	}
+
+	private static FormattedCharSequence lineText(HologramGeometry g, int line, boolean popups) {
+		return popups ? g.lineShortText[line] : g.lineText[line];
+	}
+
+	private static int lineWidth(HologramGeometry g, int line, boolean popups) {
+		return popups ? g.lineShortTextWidth[line] : g.lineTextWidth[line];
 	}
 
 	/**

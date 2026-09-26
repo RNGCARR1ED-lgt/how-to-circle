@@ -74,8 +74,8 @@ public final class HowToCircleConfig {
 	public float labelOpacity = 0.95F;
 	public int labelColor = 0xFFFFFF;
 	public int labelBackgroundColor = 0x0B2530;
-	public float labelDistance = 48F;
-	public float popupDistance = 24F;
+	public float labelDistance = 64F;
+	public float popupDistance = 40F;
 
 	public static HowToCircleConfig get() {
 		return instance;

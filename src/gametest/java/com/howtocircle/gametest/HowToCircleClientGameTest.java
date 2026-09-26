@@ -133,6 +133,11 @@ public class HowToCircleClientGameTest implements FabricClientGameTest {
 		check(dims.centreWidth() == centre && dims.centreHeight() == centre, "Centre " + centre + "x" + centre);
 		check(geometry.sectionCount > 0 && geometry.dimensionLineCount >= geometry.sectionCount, "Sections and dimension lines generated");
 		context.takeScreenshot(screenshot);
+
+		if (diameter == 15) {
+			view(context, "4.5 -54 -6 20 40");
+			context.takeScreenshot(screenshot + "_closeup");
+		}
 	}
 
 	private void testOval(ClientGameTestContext context, int width, int height, FillMode fill, String centre, String screenshot) {
