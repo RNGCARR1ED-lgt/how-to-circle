@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"id": "how-to-circle",
+	"version": "${version}",
+	"name": "How to Circle",
+	"description": "A holographic planning tool for building circles and ovals. Pick a width and height, choose a centre, and see the exact block layout with connected sections and blueprint-style dimension labels. Client-side only; never places or changes real blocks.",
+	"authors": [
+		"How to Circle contributors"
+	],
+	"contact": {
+		"sources": "https://github.com/RNGCARR1ED-lgt/how-to-circle"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/how-to-circle/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.howtocircle.client.HowToCircleClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
