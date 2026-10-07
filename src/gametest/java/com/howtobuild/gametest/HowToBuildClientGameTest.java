@@ -64,7 +64,8 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 	public void runTest(ClientGameTestContext context) {
 		context.runOnClient(client -> reset(HowToBuildConfig.get()));
 
-		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
+		// Cheats on, like a creative world: the command build test needs the player to have command permission.
+		try (TestSingleplayerContext singleplayer = context.worldBuilder().adjustSettings(HowToBuildClientGameTest::allowCommands).create()) {
 			this.singleplayer = singleplayer;
 			singleplayer.getServer().runCommand("time set noon");
 			// Creative + flying: the camera stays where it is teleported and the player cannot take fall damage.
@@ -98,6 +99,20 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 	}
 
 	// ----------------------------------------------------------------- helpers
+
+	/** Turns on "Allow Commands" in the create-world settings (the setter's name is looked up, not assumed). */
+	private static void allowCommands(Object creator) {
+		for (java.lang.reflect.Method m : creator.getClass().getMethods()) {
+			if (m.getName().startsWith("setAllow") && m.getParameterCount() == 1 && m.getParameterTypes()[0] == boolean.class) {
+				try {
+					m.invoke(creator, true);
+					System.out.println("[howtobuild] world setting " + m.getName() + "(true)");
+				} catch (ReflectiveOperationException e) {
+					throw new AssertionError("Could not call " + m.getName(), e);
+				}
+			}
+		}
+	}
 
 	private static void reset(HowToBuildConfig c) {
 		c.tool = "circle";
@@ -459,7 +474,6 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 	// ----------------------------------------------------------------- command build
 
 	private void testCommandBuild(ClientGameTestContext context) {
-		singleplayer.getServer().runCommand("op @a");
 		singleplayer.getServer().runCommand("tp @a 8.5 -50 80.5 0 45");
 		singleplayer.getConnection().waitForChunksRender();
 		context.waitTicks(20);
