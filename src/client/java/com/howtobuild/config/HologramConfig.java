@@ -12,6 +12,10 @@ public final class HologramConfig {
 	public boolean seeThroughBlocks = false;
 	public boolean showEdges = true;
 	public boolean showCentre = true;
+	/** Draw reference outlines such as the master circle a spiral follows. */
+	public boolean showGuides = true;
+	/** Show exact bounds (min / max X and Z), size and centre on the HUD for checking geometry. */
+	public boolean debug = false;
 
 	public void sanitize() {
 		opacity = LabelSettings.clamp(opacity, 0.05F, 0.9F);

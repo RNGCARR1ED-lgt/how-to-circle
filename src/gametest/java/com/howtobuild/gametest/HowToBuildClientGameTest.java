@@ -85,6 +85,9 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 			testDome(context);
 			testCorridor(context);
 			testMirror(context);
+			testSpiralFollowsCircle(context);
+			testEvenCentreAndOffsets(context);
+			testCorridorMaterials(context);
 			testLabels(context);
 			testBlockPicker(context);
 			testLargeShapes(context);
@@ -202,7 +205,7 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		awaitGeometry(context);
 		context.takeScreenshot("gui_geometry");
 
-		for (String tab : List.of("materials", "details", "labels", "mirror", "build", "geometry")) {
+		for (String tab : List.of("center", "materials", "details", "labels", "mirror", "build", "geometry")) {
 			context.clickScreenButton("gui.howtobuild.tab." + tab);
 			context.waitTicks(2);
 			check(context.computeOnClient(client -> HowToBuildConfig.get().tab.equalsIgnoreCase(tab)), "Tab " + tab + " opens");
@@ -263,7 +266,7 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 	}
 
 	private void testSpiral(ClientGameTestContext context) {
-		GeometryResult r = use(context, "spiral", params("outer_radius", "6", "stair_width", "3", "height", "16", "revolutions", "2"),
+		GeometryResult r = use(context, "spiral", params("diameter", "13", "stair_width", "3", "height", "16", "revolutions", "2"),
 				c -> c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS, ShapeKind.SLABS, ShapeKind.STAIRS)));
 		check(r.count(BlockShape.Kind.STAIRS) > 0, "Spiral uses stairs");
 		check(r.count(BlockShape.Kind.SLAB) > 0, "Spiral uses slabs");
@@ -286,7 +289,7 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		view(context, "0.5 -46 -14 0 35");
 		context.takeScreenshot("spiral_blocks_slabs_stairs");
 
-		GeometryResult detailed = use(context, "spiral", params("outer_radius", "6", "stair_width", "3", "height", "16", "revolutions", "2"), c -> {
+		GeometryResult detailed = use(context, "spiral", params("diameter", "13", "stair_width", "3", "height", "16", "revolutions", "2"), c -> {
 			c.materialTypes = new ArrayList<>(List.of(ShapeKind.STAIRS, ShapeKind.SLABS));
 			c.detailPreset = DetailPreset.ARCHITECTURAL;
 		});
@@ -353,6 +356,103 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		check(exact, "Mirror with offset places an exact reflected copy of every block");
 		view(context, "0.5 -48 -10 0 50");
 		context.takeScreenshot("mirror_x_offset");
+	}
+
+	/** (x, z) world columns of the current preview. */
+	private static java.util.Set<List<Integer>> worldColumns(ClientGameTestContext context) {
+		return context.computeOnClient(client -> {
+			BuildSession.Resolved r = BuildSession.get().resolved();
+			java.util.Set<List<Integer>> columns = new java.util.HashSet<>();
+
+			for (int i = 0; i < r.states().length; i++) {
+				BlockPos pos = r.worldPos(i);
+				columns.add(List.of(pos.getX(), pos.getZ()));
+			}
+
+			return columns;
+		});
+	}
+
+	private void testSpiralFollowsCircle(ClientGameTestContext context) {
+		use(context, "circle", params("size", "33", "fill", "FILLED"), c -> {
+		});
+		java.util.Set<List<Integer>> circle = worldColumns(context);
+		GeometryResult spiral = use(context, "spiral", params("follow_circle", "true", "circle_width", "33", "stair_width", "4", "height", "12"), c -> {
+			c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS, ShapeKind.SLABS, ShapeKind.STAIRS));
+			c.detailPreset = DetailPreset.ARCHITECTURAL;
+		});
+		java.util.Set<List<Integer>> columns = worldColumns(context);
+		check(circle.containsAll(columns), "Spiral following a 33 × 33 circle never leaves the circle's blocks in the world");
+		check(spiral.width() == 33 && spiral.length() == 33, "Spiral footprint is exactly 33 × 33");
+		check(spiral.bounds().minY() == 0, "Spiral starts on the centre's layer, nothing below it");
+		check(!spiral.guides().isEmpty(), "The master circle outline is available as a guide");
+		view(context, "0.5 -38 -26 0 40");
+		context.takeScreenshot("spiral_follows_circle_33");
+	}
+
+	private void testEvenCentreAndOffsets(ClientGameTestContext context) {
+		GeometryResult circle = use(context, "circle", params("size", "32", "fill", "OUTLINE"), c -> {
+		});
+		GeometryResult spiral = use(context, "spiral", params("follow_circle", "true", "circle_width", "32", "stair_width", "3"), c -> {
+		});
+		check(circle.centreCells().size() == 4 && spiral.centreCells().size() == 4, "32 × 32 circle and spiral both have a 2×2 centre");
+
+		for (int[] cell : circle.centreCells()) {
+			check(spiral.centreCells().stream().anyMatch(c -> c[0] == cell[0] && c[2] == cell[2]), "Circle and spiral share centre cell " + cell[0] + "," + cell[2]);
+		}
+
+		view(context, "0.5 -48 -14 0 45");
+		context.takeScreenshot("spiral_32_two_by_two_centre");
+
+		use(context, "circle", params("size", "33", "fill", "FILLED"), c -> {
+			c.offsetX = 7;
+			c.offsetY = -3;
+			c.offsetZ = 4;
+		});
+		java.util.Set<List<Integer>> circleMoved = worldColumns(context);
+		int circleMinY = context.computeOnClient(client -> BuildSession.get().resolved().worldPos(0).getY());
+		use(context, "spiral", params("follow_circle", "true", "circle_width", "33"), c -> {
+			c.offsetX = 7;
+			c.offsetY = -3;
+			c.offsetZ = 4;
+		});
+		check(circleMoved.containsAll(worldColumns(context)), "With offsets X +7, Z +4 the spiral still sits inside the moved circle");
+		BlockPos origin = context.computeOnClient(client -> BuildSession.get().origin());
+		check(origin.equals(CENTRE.offset(7, -3, 4)), "Offsets are relative to the selected centre: origin " + origin);
+		check(circleMinY == CENTRE.getY() - 3, "Offset Y -3 moves the circle down exactly 3 blocks");
+	}
+
+	private void testCorridorMaterials(ClientGameTestContext context) {
+		use(context, "corridor", params("width", "9", "height", "10", "length", "12", "structure_part", "BLOCKS", "curve_part", "STAIRS",
+				"trim_part", "SLABS"), c -> {
+			c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS, ShapeKind.SLABS, ShapeKind.STAIRS));
+			c.detailPreset = DetailPreset.SIMPLE;
+		});
+		boolean ok = context.computeOnClient(client -> {
+			BuildSession.Resolved r = BuildSession.get().resolved();
+			boolean stairs = false;
+			boolean slabs = false;
+
+			for (int i = 0; i < r.states().length; i++) {
+				BlockShape shape = r.result().placements().get(i).shape();
+				BlockState state = r.states()[i];
+
+				if (shape.isStairs()) {
+					if (!(state.getBlock() instanceof StairBlock)) return false;
+					stairs = true;
+				}
+
+				if (shape.isSlab()) {
+					if (!(state.getBlock() instanceof SlabBlock)) return false;
+					slabs = true;
+				}
+			}
+
+			return stairs && slabs;
+		});
+		check(ok, "Arch corridor with block structure, stair curve and slab trim resolves to real stair and slab blocks");
+		view(context, "-10.5 -50 -2 -110 25");
+		context.takeScreenshot("corridor_stairs_slabs");
 	}
 
 	private void testLabels(ClientGameTestContext context) {
@@ -484,13 +584,14 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 			HowToBuildConfig c = HowToBuildConfig.get();
 			reset(c);
 			c.tool = "spiral";
-			c.setSetting(c.activeTool(), "outer_radius", "4");
+			c.setSetting(c.activeTool(), "follow_circle", "true");
+			c.setSetting(c.activeTool(), "circle_width", "9");
 			c.setSetting(c.activeTool(), "stair_width", "2");
 			c.setSetting(c.activeTool(), "height", "8");
 			c.setSetting(c.activeTool(), "revolutions", "1");
 			c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS, ShapeKind.SLABS, ShapeKind.STAIRS));
-			// The central column gives the plan long runs of identical blocks, which become /fill commands.
-			c.detailPreset = DetailPreset.SIMPLE;
+			// Column (long runs of identical blocks → /fill), rails and both landings (the old Y − 1 bug).
+			c.detailPreset = DetailPreset.DETAILED;
 			c.sanitize();
 			BuildSession.get().setAnchor(BUILD_CENTRE);
 		});
@@ -503,14 +604,14 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		check(analysis.plan().fills() > 0 && analysis.plan().setblocks() > 0, "Plan uses both /fill and /setblock");
 		check(analysis.plan().commands().stream().anyMatch(cmd -> cmd.contains("facing=")), "Plan preserves stair block states");
 		check(!analysis.destructive(), "Building in open air replaces nothing");
+		List<BlockState> groundBefore = ground(singleplayer);
 
 		Map<BlockPos, BlockState> expected = context.computeOnClient(client -> {
 			BuildSession.Resolved r = BuildSession.get().resolved();
 			Map<BlockPos, BlockState> map = new LinkedHashMap<>();
 
 			for (int i = 0; i < r.states().length; i++) {
-				Placement p = r.result().placements().get(i);
-				map.put(r.anchor().offset(p.x(), p.y(), p.z()), r.states()[i]);
+				map.put(r.worldPos(i), r.states()[i]);
 			}
 
 			return map;
@@ -530,6 +631,8 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 			return bad;
 		});
 		check(mismatches == 0, "Every block built by commands matches the preview exactly, including stair and slab states (" + mismatches + " mismatches)");
+		check(expected.keySet().stream().allMatch(pos -> pos.getY() >= BUILD_CENTRE.getY()), "No planned block lies below the centre's layer");
+		check(groundBefore.equals(ground(singleplayer)), "The ground under the staircase is untouched by the command build");
 
 		check(context.computeOnClient(client -> CommandExecutor.get().undo(20)), "Undo starts");
 		awaitExecutor(context);
@@ -572,6 +675,21 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 	private static boolean isEmptyAtCentre(GeometryResult r) {
 		var b = r.bounds();
 		return r.at((b.minX() + b.maxX()) / 2, (b.minY() + b.maxY()) / 2, (b.minZ() + b.maxZ()) / 2) == null;
+	}
+
+	/** The ground layers directly below the command-build area. */
+	private static List<BlockState> ground(TestSingleplayerContext singleplayer) {
+		return singleplayer.getServer().computeOnServer(server -> {
+			ServerLevel level = server.overworld();
+			List<BlockState> states = new ArrayList<>();
+
+			for (BlockPos pos : BlockPos.betweenClosed(BUILD_CENTRE.getX() - 6, BUILD_CENTRE.getY() - 3, BUILD_CENTRE.getZ() - 6,
+					BUILD_CENTRE.getX() + 6, BUILD_CENTRE.getY() - 1, BUILD_CENTRE.getZ() + 6)) {
+				states.add(level.getBlockState(pos));
+			}
+
+			return states;
+		});
 	}
 
 	private static List<BlockState> snapshot(TestSingleplayerContext singleplayer) {

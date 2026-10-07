@@ -55,6 +55,9 @@ public final class SelectionHud {
 		}
 
 		HowToBuildConfig config = HowToBuildConfig.get();
+
+		if (config.hologram.debug) debug(graphics, font);
+
 		BuildSession.Resolved resolved = config.hologram.visible && config.build.trackProgress ? BuildSession.get().resolved() : null;
 
 		if (resolved != null && config.build.method == BuildConfig.Method.NORMAL) {
@@ -64,6 +67,35 @@ public final class SelectionHud {
 			int x = graphics.guiWidth() - font.width(text) - 8;
 			graphics.fill(x - 4, 6, graphics.guiWidth() - 4, 20, 0x90101C24);
 			graphics.text(font, text, x, 9, 0xFFFFFFFF);
+		}
+	}
+
+	/** Exact bounds, size and centre of the preview in world coordinates, for checking geometry. */
+	private static void debug(GuiGraphicsExtractor graphics, Font font) {
+		BuildSession.Resolved r = BuildSession.get().resolved();
+
+		if (r == null || r.result().bounds() == null) return;
+
+		var b = r.result().bounds();
+		var t = r.transform();
+		var cells = r.result().centreCells();
+		long cx = cells.stream().mapToInt(c -> c[0]).distinct().count();
+		long cz = cells.stream().mapToInt(c -> c[2]).distinct().count();
+		String[] lines = {
+				Component.translatable("gui.howtobuild.debug.bounds", t.x(b.minX()), t.x(b.maxX()), t.z(b.minZ()), t.z(b.maxZ()), t.y(b.minY()), t.y(b.maxY())).getString(),
+				Component.translatable("gui.howtobuild.debug.size", b.sizeX(), b.sizeZ(), b.sizeY(), r.result().blockCount()).getString(),
+				Component.translatable("gui.howtobuild.debug.centre", t.anchorX(), t.anchorY(), t.anchorZ(), cx + "×" + cz,
+						t.offsetX(), t.offsetY(), t.offsetZ()).getString()};
+		int width = 0;
+
+		for (String line : lines) {
+			width = Math.max(width, font.width(line));
+		}
+
+		graphics.fill(4, 4, 12 + width, 8 + 11 * lines.length, 0x90101C24);
+
+		for (int i = 0; i < lines.length; i++) {
+			graphics.text(font, lines[i], 8, 7 + 11 * i, 0xFFE6F2F5);
 		}
 	}
 

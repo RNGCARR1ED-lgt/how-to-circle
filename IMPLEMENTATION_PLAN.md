@@ -347,7 +347,7 @@ GeometryCenter (extents + alignment → min offset, 1×1/2×2 cells, doubled cen
       │
 CircularFootprint (exact ellipse cells of W × L around a GeometryCenter)
       │                         │
- Circle / Oval tools        Spiral (own radius, or Follow Circle Dimensions)
+ Circle / Oval tools        Spiral (own diameter, or Follow Circle Dimensions)
       │                         │
 GeometryResult (exact placements relative to the anchor, centre cells, guides)
       │
@@ -375,7 +375,9 @@ MirrorTransform → resolved BlockStates ──► hologram · labels · progres
 ## 19. Spiral staircase changes
 
 **Footprint**
-- The footprint is a `CircularFootprint`. With its own radius it is `2r + 1` (1×1 centre) or `2r` (2×2 centre).
+- The footprint is a `CircularFootprint`. With its own size it is exactly `diameter × diameter`, odd or even.
+  The old `outer_radius` (always `2r + 1`) is gone; saved settings are migrated to the equivalent diameter.
+  Nothing rounds a size to odd: even sizes have a genuine 2 × 2 centre.
 - With **Follow Circle Dimensions** it uses the master shape's exact width × length, Circle or Oval.
 - **Copy from Circle tool** takes the size from the Circle tool. **Fit spiral to circle** turns following on,
   copies the size and keeps every part inside.
@@ -433,6 +435,8 @@ MirrorTransform → resolved BlockStates ──► hologram · labels · progres
 
 ## 22. Tests added in this pass
 
+- **Exact sizes:** spirals of 1–8, 16, 30–34 and 64 blocks keep exactly that size, in both modes, with a 1×1 or
+  2×2 centre by parity, centred on the footprint and identical to the circle's centre.
 - **Spiral vs circle:**
   - spiral ⊆ circle for 33 × 33 (and other odd, even and oval sizes, widths 1–5, all details);
   - identical centre cells for 32 × 32;

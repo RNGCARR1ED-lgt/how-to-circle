@@ -46,7 +46,6 @@ public record BuildAnalysis(CommandPlan plan, CommandPlan undo, int planned, int
 		List<StatePlacement> blocks = new ArrayList<>();
 		List<StatePlacement> previous = new ArrayList<>();
 		List<Placement> placements = r.result().placements();
-		BlockPos o = r.anchor();
 		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 		int planned = 0;
 		int correct = 0;
@@ -59,9 +58,9 @@ public record BuildAnalysis(CommandPlan plan, CommandPlan undo, int planned, int
 			if (!r.buildable()[i]) continue;
 
 			Placement p = placements.get(i);
-			int x = o.getX() + p.x();
-			int y = o.getY() + p.y();
-			int z = o.getZ() + p.z();
+			int x = r.transform().x(p.x());
+			int y = r.transform().y(p.y());
+			int z = r.transform().z(p.z());
 			planned++;
 
 			if (level.isOutsideBuildHeight(y)) {

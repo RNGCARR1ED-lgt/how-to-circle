@@ -139,7 +139,7 @@ class UnifiedCoordinatesTest {
 
 	@Test
 	void twoByTwoSpiralWithItsOwnRadiusIsSymmetricAroundTheCorner() {
-		GeometryResult r = TestShapes.generate("spiral", "outer_radius", 8, "centre_size", "TWO_BY_TWO", "stair_width", 3);
+		GeometryResult r = TestShapes.generate("spiral", "diameter", 16, "stair_width", 3);
 		assertEquals(16, r.width());
 		assertEquals(16, r.length());
 		assertEquals(4, r.centreCells().size());
@@ -147,6 +147,41 @@ class UnifiedCoordinatesTest {
 
 		for (Placement p : r.placements()) {
 			assertTrue(circle.contains(Voxels.pack(p.x(), 0, p.z())), "inside the 16 × 16 circle: " + p);
+		}
+	}
+
+	/** Odd and even sizes are both native: the footprint is exactly the requested size, never rounded to odd. */
+	@ParameterizedTest(name = "{0} × {0}")
+	@ValueSource(ints = {1, 2, 3, 4, 5, 6, 7, 8, 16, 30, 31, 32, 33, 34, 64})
+	void spiralKeepsEveryOddAndEvenSizeExactly(int size) {
+		for (boolean follow : new boolean[] {false, true}) {
+			GeometryResult r = follow
+					? TestShapes.generate("spiral", "follow_circle", true, "circle_width", size, "stair_width", 2, "height", 8, "revolutions", 1)
+					: TestShapes.generate("spiral", "diameter", size, "stair_width", 2, "height", 8, "revolutions", 1);
+			String mode = (follow ? "following a circle" : "own size") + " " + size;
+			assertFalse(r.isEmpty(), mode + ": " + r.warnings());
+			assertEquals(size, r.width(), mode + ": exact width");
+			assertEquals(size, r.length(), mode + ": exact length");
+
+			int xs = (int) r.centreCells().stream().mapToInt(c -> c[0]).distinct().count();
+			int zs = (int) r.centreCells().stream().mapToInt(c -> c[2]).distinct().count();
+			int expected = size % 2 == 0 ? 2 : 1;
+			assertEquals(expected, xs, mode + ": centre width");
+			assertEquals(expected, zs, mode + ": centre length");
+
+			// The centre is the geometric middle of the footprint: equal distance to both edges on each axis.
+			int minCx = r.centreCells().stream().mapToInt(c -> c[0]).min().orElseThrow();
+			int maxCx = r.centreCells().stream().mapToInt(c -> c[0]).max().orElseThrow();
+			assertEquals(minCx - r.bounds().minX(), r.bounds().maxX() - maxCx, mode + ": centred along X");
+			int minCz = r.centreCells().stream().mapToInt(c -> c[2]).min().orElseThrow();
+			int maxCz = r.centreCells().stream().mapToInt(c -> c[2]).max().orElseThrow();
+			assertEquals(minCz - r.bounds().minZ(), r.bounds().maxZ() - maxCz, mode + ": centred along Z");
+
+			if (size >= 3) {
+				GeometryResult circle = TestShapes.generate("circle", "size", size, "fill", "FILLED");
+				assertEquals(circle.bounds().minX(), r.bounds().minX(), mode + ": same footprint as the circle");
+				assertEquals(columns(circle.centreCells()), columns(r.centreCells()), mode + ": same centre as the circle");
+			}
 		}
 	}
 

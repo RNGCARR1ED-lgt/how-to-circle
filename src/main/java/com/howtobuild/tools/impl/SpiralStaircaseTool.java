@@ -34,7 +34,8 @@ import com.howtobuild.tools.capability.Rotatable;
  * <h2>Footprint</h2>
  * The staircase lives in a {@link CircularFootprint}, the same object the Circle and Oval tools build from:
  * <ul>
- *     <li>with its own radius, a circle of diameter {@code 2r + 1} (1×1 centre) or {@code 2r} (2×2 centre);</li>
+ *     <li>with its own size, a circle of exactly {@code diameter × diameter} blocks: odd sizes get a 1×1 centre, even
+ *     sizes a genuine 2×2 centre (the four middle blocks), never rounded to an odd size;</li>
  *     <li>with <b>Follow Circle Dimensions</b>, the master circle or oval of exactly {@code width × length} blocks, so every
  *     block of the staircase, including all details, is one of the circle's cells.</li>
  * </ul>
@@ -96,7 +97,7 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 	@Override
 	public List<ToolParameter> parameters() {
 		return List.of(
-				ToolParameter.integer("outer_radius", 1, 128, 5).visibleWhen(s -> !s.getBool("follow_circle")),
+				ToolParameter.integer("diameter", 1, 1024, 11).visibleWhen(s -> !s.getBool("follow_circle")),
 				ToolParameter.integer("stair_width", 1, 64, 3),
 				ToolParameter.integer("height", 2, 384, 16),
 				ToolParameter.integer("revolutions", 0, 50, 2),
@@ -127,8 +128,8 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 			return new int[] {w, l};
 		}
 
-		int r = s.getInt("outer_radius");
-		int d = s.getEnum("centre_size", CentreSize.class) == CentreSize.TWO_BY_TWO ? 2 * r : 2 * r + 1;
+		// The size is the footprint itself: 32 stays 32 (2×2 centre), 33 stays 33 (1×1 centre).
+		int d = s.getInt("diameter");
 		return new int[] {d, d};
 	}
 
@@ -241,7 +242,6 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 	public ValidationResult validate(ToolSettings s, GenerationContext ctx) {
 		ValidationResult r = new ValidationResult();
 		Assignment a = assignment(s, ctx.materialTypes());
-		int outer = s.getInt("outer_radius");
 		int width = s.getInt("stair_width");
 		int total = totalAngle(s);
 		int steps = stepCount(s, a);
@@ -249,19 +249,17 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 		r.errorIf(total <= 0, "The staircase must turn: set at least 1 revolution or an extra angle.");
 		r.errorIf(steps < 1, "The height is too small for a single step.");
 
-		if (s.getBool("follow_circle")) {
-			int[] size = footprintSize(s);
-			String incompatible = GeometryCenter.incompatibility(s.getEnum("centre_size", CentreSize.class), size[0], size[1]);
+		int[] footprint = footprintSize(s);
+		String incompatible = GeometryCenter.incompatibility(s.getEnum("centre_size", CentreSize.class), footprint[0], footprint[1]);
 
-			if (incompatible != null) r.error(incompatible);
-		}
+		if (incompatible != null) r.error(incompatible);
 
 		if (!r.ok()) return r;
 
 		int[] size = footprintSize(s);
 		double half = Math.min(size[0], size[1]) / 2.0;
 		r.warnIf(s.getInt("inner_radius") <= 0 && width >= half, "⚠ Stair width (" + width + ") is larger than the outer radius ("
-				+ (s.getBool("follow_circle") ? half : outer) + "); the steps meet in the middle.");
+				+ half + "); the steps meet in the middle.");
 		r.warnIf(s.getInt("inner_radius") > 0 && s.getInt("inner_radius") >= half,
 				"⚠ The inner radius (" + s.getInt("inner_radius") + ") leaves no room for steps inside the outer boundary (radius " + half + ").");
 
