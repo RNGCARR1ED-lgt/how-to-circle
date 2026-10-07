@@ -13,22 +13,22 @@ import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 
-import com.howtobuild.client.HologramManager;
-import com.howtobuild.config.HowToCircleConfig;
-import com.howtobuild.geometry.ResolvedDimensions;
-import com.howtobuild.geometry.ShapePlacement;
-import com.howtobuild.gui.CircleSettingsScreen;
+import com.howtobuild.client.BuildSession;
+import com.howtobuild.config.HowToBuildConfig;
+import com.howtobuild.geometry.Box;
+import com.howtobuild.geometry.GeometryResult;
+import com.howtobuild.gui.HowToBuildScreen;
 
 /**
- * Centre selection mode.
+ * Centre selection mode, for the shape centre or the mirror centre.
  *
  * <ol>
- *     <li>Press the <i>Select centre</i> key (default J) or the GUI button.</li>
- *     <li>A pulsing holographic marker shows the targeted centre block, with the footprint of the shape around it. As
- *     with placing a block, the centre is the block in front of the face you look at; sneak to target the block
- *     itself.</li>
- *     <li>Left-click confirms: the hologram is generated there and the settings screen (if it was open) reopens with
- *     the new coordinates. Right-click or pressing the key again cancels.</li>
+ *     <li>Press the <i>Select centre</i> key (default J), the <i>Select mirror centre</i> key or a GUI button.</li>
+ *     <li>A pulsing holographic marker shows the targeted block; for the shape centre the footprint of the current
+ *     shape is outlined around it. As with placing a block, the target is the block in front of the face you look at;
+ *     sneak to target the block itself.</li>
+ *     <li>Left-click confirms. Right-click or pressing the key again cancels. If the settings screen was open it
+ *     reopens afterwards.</li>
  * </ol>
  * While selecting, clicks never break, place or use anything.
  */
@@ -36,14 +36,16 @@ public final class CentreSelectionHandler {
 	public static final double RANGE = 128;
 	private static final CentreSelectionHandler INSTANCE = new CentreSelectionHandler();
 
+	public enum Target {
+		SHAPE,
+		MIRROR
+	}
+
 	private boolean active;
+	private Target mode = Target.SHAPE;
 	private boolean reopenScreen;
 	private boolean suppressUntilReleased;
 	private @Nullable BlockPos target;
-	private @Nullable BlockPos previewFor;
-	private @Nullable ShapePlacement previewPlacement;
-	private @Nullable ResolvedDimensions previewDimensions;
-	private float @Nullable [] previewBounds;
 
 	private CentreSelectionHandler() {
 	}
@@ -65,17 +67,22 @@ public final class CentreSelectionHandler {
 		return active;
 	}
 
+	public Target mode() {
+		return mode;
+	}
+
 	private boolean blocksInteraction() {
 		return active || suppressUntilReleased;
 	}
 
-	/** Enters selection mode. {@code fromScreen} reopens the settings screen after confirming. */
-	public void start(boolean fromScreen) {
+	/** Enters selection mode. {@code fromScreen} reopens the settings screen afterwards. */
+	public void start(Target what, boolean fromScreen) {
 		Minecraft client = Minecraft.getInstance();
 
 		if (client.player == null) return;
 
 		active = true;
+		mode = what;
 		reopenScreen = fromScreen;
 		// Drop clicks that were queued before selection started.
 		while (client.options.keyAttack.consumeClick()) {
@@ -87,7 +94,7 @@ public final class CentreSelectionHandler {
 		}
 
 		updateTarget(client);
-		client.player.sendSystemMessage(Component.translatable("message.how-to-circle.selecting"));
+		client.player.sendSystemMessage(Component.translatable(what == Target.SHAPE ? "message.howtobuild.selecting" : "message.howtobuild.selecting_mirror"));
 	}
 
 	public void cancel() {
@@ -99,7 +106,7 @@ public final class CentreSelectionHandler {
 		Minecraft client = Minecraft.getInstance();
 
 		if (client.player != null) {
-			client.player.sendSystemMessage(Component.translatable("message.how-to-circle.selection_cancelled"));
+			client.player.sendSystemMessage(Component.translatable("message.howtobuild.selection_cancelled"));
 		}
 
 		reopenIfNeeded(client);
@@ -112,11 +119,11 @@ public final class CentreSelectionHandler {
 		target = null;
 	}
 
-	public void toggle(boolean fromScreen) {
+	public void toggle(Target what, boolean fromScreen) {
 		if (active) {
 			cancel();
 		} else {
-			start(fromScreen);
+			start(what, fromScreen);
 		}
 	}
 
@@ -127,7 +134,7 @@ public final class CentreSelectionHandler {
 		if (!active || client.player == null) return false;
 
 		if (target == null) {
-			client.player.sendSystemMessage(Component.translatable("message.how-to-circle.no_target"));
+			client.player.sendSystemMessage(Component.translatable("message.howtobuild.no_target"));
 			return false;
 		}
 
@@ -135,11 +142,20 @@ public final class CentreSelectionHandler {
 		active = false;
 		target = null;
 		suppressUntilReleased = true;
-		HologramManager.get().setAnchor(centre);
-		HowToCircleConfig.get().showHologram = true;
-		ResolvedDimensions dims = HowToCircleConfig.get().resolveDimensions();
-		client.player.sendSystemMessage(Component.translatable("message.how-to-circle.centre_set",
-				centre.getX(), centre.getY(), centre.getZ(), dims.width(), dims.height()));
+		HowToBuildConfig config = HowToBuildConfig.get();
+
+		if (mode == Target.SHAPE) {
+			BuildSession.get().setAnchor(centre);
+			config.hologram.visible = true;
+			client.player.sendSystemMessage(Component.translatable("message.howtobuild.centre_set", centre.getX(), centre.getY(), centre.getZ()));
+		} else {
+			BuildSession.get().setMirrorCentre(centre);
+			config.mirror.useShapeCentre = false;
+			config.mirror.enabled = true;
+			client.player.sendSystemMessage(Component.translatable("message.howtobuild.mirror_centre_set", centre.getX(), centre.getY(), centre.getZ()));
+		}
+
+		HowToBuildConfig.save();
 		reopenIfNeeded(client);
 		return true;
 	}
@@ -147,7 +163,7 @@ public final class CentreSelectionHandler {
 	private void reopenIfNeeded(Minecraft client) {
 		if (reopenScreen) {
 			reopenScreen = false;
-			client.gui.setScreen(new CircleSettingsScreen());
+			client.gui.setScreen(new HowToBuildScreen());
 		}
 	}
 
@@ -212,42 +228,30 @@ public final class CentreSelectionHandler {
 		return active ? target : null;
 	}
 
-	/**
-	 * Bounds of the shape that would be generated at the marker, relative to the marker block (6 floats), cached until
-	 * the target or settings change.
-	 */
-	public float @Nullable [] previewBounds() {
-		if (!active || target == null) return null;
+	/** Marker colour: amber for the shape centre, violet for the mirror centre. */
+	public int markerColor() {
+		return mode == Target.SHAPE ? 0xFFD24D : 0xB070FF;
+	}
 
-		HowToCircleConfig config = HowToCircleConfig.get();
-		ShapePlacement placement = config.placement();
-		ResolvedDimensions dims = config.resolveDimensions();
+	/** Bounds of the current shape if it were centred on the marker, relative to the marker block. */
+	public @Nullable Box previewBounds() {
+		if (!active || target == null || mode != Target.SHAPE) return null;
 
-		if (previewBounds == null || !target.equals(previewFor) || !placement.equals(previewPlacement) || !dims.equals(previewDimensions)) {
-			float[] bounds = new float[6];
-			int[] min = placement.offset(0, 0, dims.width(), dims.height());
-			int[] max = placement.offset(dims.width() - 1, dims.height() - 1, dims.width(), dims.height());
+		GeometryResult geometry = BuildSession.get().geometry();
+		Box bounds = geometry == null ? null : geometry.bounds();
 
-			for (int axis = 0; axis < 3; axis++) {
-				bounds[axis] = Math.min(min[axis], max[axis]);
-				bounds[3 + axis] = Math.max(min[axis], max[axis]) + 1;
-			}
+		if (bounds == null) return null;
 
-			previewBounds = bounds;
-			previewFor = target;
-			previewPlacement = placement;
-			previewDimensions = dims;
-		}
-
-		return previewBounds;
+		HowToBuildConfig c = HowToBuildConfig.get();
+		return bounds.offset(c.offsetX, c.offsetY, c.offsetZ);
 	}
 
 	/** A short status line for the HUD while selecting. */
 	public Component statusLine() {
 		if (target == null) {
-			return Component.translatable("hud.how-to-circle.no_target");
+			return Component.translatable("hud.howtobuild.no_target");
 		}
 
-		return Component.translatable("hud.how-to-circle.target", target.getX(), target.getY(), target.getZ());
+		return Component.translatable("hud.howtobuild.target", target.getX(), target.getY(), target.getZ());
 	}
 }

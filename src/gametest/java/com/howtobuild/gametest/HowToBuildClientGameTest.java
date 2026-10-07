@@ -1,51 +1,74 @@
 package com.howtobuild.gametest;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
 
 import org.lwjgl.glfw.GLFW;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.WallBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 
-import com.howtobuild.client.HologramManager;
-import com.howtobuild.config.HowToCircleConfig;
-import com.howtobuild.dimensions.LabelFormat;
-import com.howtobuild.geometry.CentreSize;
-import com.howtobuild.geometry.FillMode;
-import com.howtobuild.geometry.ResolvedDimensions;
-import com.howtobuild.geometry.ShapePlacement;
-import com.howtobuild.geometry.ShapeType;
-import com.howtobuild.gui.CircleSettingsScreen;
+import com.howtobuild.building.BuildAnalysis;
+import com.howtobuild.building.CommandExecutor;
+import com.howtobuild.building.CommandPermission;
+import com.howtobuild.client.BuildSession;
+import com.howtobuild.config.HowToBuildConfig;
+import com.howtobuild.details.DetailFeature;
+import com.howtobuild.details.DetailPreset;
+import com.howtobuild.dimensions.DimensionFormat;
+import com.howtobuild.geometry.BlockShape;
+import com.howtobuild.geometry.GeometryResult;
+import com.howtobuild.geometry.MaterialRole;
+import com.howtobuild.geometry.Placement;
+import com.howtobuild.geometry.ShapeKind;
+import com.howtobuild.gui.BlockPickerScreen;
+import com.howtobuild.gui.CommandBuildScreen;
+import com.howtobuild.gui.HowToBuildScreen;
 import com.howtobuild.input.CentreSelectionHandler;
 import com.howtobuild.input.KeyBindings;
-import com.howtobuild.render.HologramGeometry;
+import com.howtobuild.materials.BlockCatalog;
+import com.howtobuild.materials.MaterialCategory;
+import com.howtobuild.materials.MaterialResolver;
+import com.howtobuild.render.LabelSet;
 import com.howtobuild.render.RenderStats;
+import com.howtobuild.transform.MirrorAxis;
+import com.howtobuild.transform.MirrorMode;
 
 /**
- * End-to-end test in a real Minecraft 26.2 client: opens the GUI, generates circles and ovals of every parity, toggles
- * labels, renders large shapes, uses the centre selection key binding and verifies that no real block was changed.
- * Screenshots are written to {@code build/run/clientGameTest/screenshots}.
+ * End-to-end acceptance test in a real Minecraft 26.2 client. It drives the GUI and key bindings, generates every
+ * tool, checks the generated blocks, labels, mirror and block picker against the real registries, measures render
+ * cost, verifies that previewing never changes the world, and finally builds a staircase with commands (as an
+ * operator) and checks every block state on the server, then undoes it. Screenshots go to
+ * {@code build/run/clientGameTest/screenshots}.
  */
 @SuppressWarnings("UnstableApiUsage")
-public class HowToCircleClientGameTest implements FabricClientGameTest {
+public class HowToBuildClientGameTest implements FabricClientGameTest {
 	private static final BlockPos CENTRE = new BlockPos(0, -60, 0);
+	private static final BlockPos BUILD_CENTRE = new BlockPos(8, -60, 90);
+
+	private TestSingleplayerContext singleplayer;
 
 	@Override
 	public void runTest(ClientGameTestContext context) {
-		context.runOnClient(client -> resetConfig());
+		context.runOnClient(client -> reset(HowToBuildConfig.get()));
 
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
 			this.singleplayer = singleplayer;
 			singleplayer.getServer().runCommand("time set noon");
 			// Creative + flying: the camera stays where it is teleported and the player cannot take fall damage.
 			singleplayer.getServer().runCommand("gamemode creative @a");
-			// Let the game mode chat message fade out so it does not cover the screenshots.
 			context.waitTicks(220);
 			singleplayer.getServer().runCommand("tp @a 0.5 -60 0.5 0 90");
 			singleplayer.getConnection().waitForChunksRender();
@@ -53,217 +76,353 @@ public class HowToCircleClientGameTest implements FabricClientGameTest {
 
 			List<BlockState> before = snapshot(singleplayer);
 
-			testGuiOpensAndGenerates(context);
-			testCircle(context, 15, FillMode.OUTLINE, 1, "circle_15_outline");
-			testCircle(context, 15, FillMode.FILLED, 1, "circle_15_filled");
-			testCircle(context, 16, FillMode.OUTLINE, 2, "circle_16_outline_2x2_centre");
-			testOval(context, 21, 13, FillMode.FILLED, "1×1", "oval_21x13_filled");
-			testOval(context, 20, 12, FillMode.OUTLINE, "2×2", "oval_20x12_outline");
-			testOval(context, 21, 12, FillMode.OUTLINE, "1×2", "oval_21x12_mixed_parity");
-			testForcedCentre(context);
-			testLabelToggles(context);
-			testVerticalAndRotation(context);
-			testLargeShapes(context, singleplayer);
-			testClearAndRegenerate(context);
-			testCentreSelectionKey(context, singleplayer);
+			testGui(context);
+			testCircle(context);
+			testCylinder(context);
+			testSpiral(context);
+			testSphere(context);
+			testDome(context);
+			testCorridor(context);
+			testMirror(context);
+			testLabels(context);
+			testBlockPicker(context);
+			testLargeShapes(context);
+			testCentreSelectionKey(context);
 			testGuiOpenCloseRepeatedly(context);
 
 			List<BlockState> after = snapshot(singleplayer);
-			check(before.equals(after), "No real blocks were placed or modified");
+			check(before.equals(after), "Previewing never placed or modified a real block");
+
+			testCommandBuild(context);
 		}
 	}
 
-	private static void resetConfig() {
-		HowToCircleConfig config = HowToCircleConfig.get();
-		config.shapeType = ShapeType.CIRCLE;
-		config.width = 15;
-		config.height = 15;
-		config.fillMode = FillMode.OUTLINE;
-		config.centreSize = CentreSize.AUTO;
-		config.plane = ShapePlacement.Plane.HORIZONTAL;
-		config.rotated = false;
-		config.alignPositiveU = true;
-		config.alignPositiveV = true;
-		config.verticalOffset = 0;
-		config.lockToBlockCentre = true;
-		config.showHologram = true;
-		config.showDimensions = true;
-		config.showPopups = true;
-		config.popupsFacePlayer = true;
-		config.labelFormat = LabelFormat.LONG_BY_SHORT;
-		config.seeThroughBlocks = false;
-		HologramManager.get().clear();
+	// ----------------------------------------------------------------- helpers
+
+	private static void reset(HowToBuildConfig c) {
+		c.tool = "circle";
+		c.tab = "GEOMETRY";
+		c.advanced = false;
+		c.toolSettings.clear();
+		c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS));
+		c.detailPreset = DetailPreset.NONE;
+		c.customDetails = new ArrayList<>();
+		c.pattern = com.howtobuild.details.MaterialPattern.NONE;
+		c.variation = com.howtobuild.details.MaterialVariation.NONE;
+		c.rotation = 0;
+		c.offsetX = 0;
+		c.offsetY = 0;
+		c.offsetZ = 0;
+		c.alignX = true;
+		c.alignY = true;
+		c.alignZ = true;
+		c.lockToBlockCentre = true;
+		c.materials = HowToBuildConfig.defaultMaterials();
+		c.labels = new com.howtobuild.config.LabelSettings();
+		c.mirror = new com.howtobuild.config.MirrorConfig();
+		c.hologram.visible = true;
+		c.hologram.seeThroughBlocks = false;
+		c.build.commandsPerTick = 2;
+		c.build.keepExisting = false;
+		c.sanitize();
 	}
 
-	private TestSingleplayerContext singleplayer;
+	/** Selects a tool with the given parameters (everything else default) at the test centre and waits for it. */
+	private GeometryResult use(ClientGameTestContext context, String tool, Map<String, String> values, Consumer<HowToBuildConfig> extra) {
+		context.runOnClient(client -> {
+			HowToBuildConfig c = HowToBuildConfig.get();
+			reset(c);
+			c.tool = tool;
+
+			for (Map.Entry<String, String> e : values.entrySet()) {
+				c.setSetting(c.activeTool(), e.getKey(), e.getValue());
+			}
+
+			extra.accept(c);
+			c.sanitize();
+			BuildSession.get().setAnchor(CENTRE);
+		});
+		return awaitGeometry(context);
+	}
+
+	private static Map<String, String> params(String... keyValues) {
+		Map<String, String> map = new LinkedHashMap<>();
+
+		for (int i = 0; i < keyValues.length; i += 2) {
+			map.put(keyValues[i], keyValues[i + 1]);
+		}
+
+		return map;
+	}
+
+	private GeometryResult awaitGeometry(ClientGameTestContext context) {
+		context.waitTicks(2);
+
+		for (int i = 0; i < 600; i++) {
+			GeometryResult result = context.computeOnClient(client -> BuildSession.get().isGenerating() ? null : BuildSession.get().geometry());
+
+			if (result != null) return result;
+
+			context.waitTicks(1);
+		}
+
+		throw new AssertionError("Geometry generation timed out");
+	}
 
 	private void view(ClientGameTestContext context, String tp) {
 		context.runOnClient(client -> {
 			if (client.player != null) client.player.getAbilities().flying = true;
 		});
 		singleplayer.getServer().runCommand("tp @a " + tp);
-		// Give the client time to receive the new position and render a few frames.
 		context.waitTicks(15);
 	}
 
-	private void testGuiOpensAndGenerates(ClientGameTestContext context) {
+	// ----------------------------------------------------------------- GUI
+
+	private void testGui(ClientGameTestContext context) {
 		context.getInput().pressKey(KeyBindings.OPEN_SETTINGS);
-		context.waitForScreen(CircleSettingsScreen.class);
-		context.takeScreenshot("how_to_circle_gui");
-		context.clickScreenButton("gui.how-to-circle.use_position");
-		context.clickScreenButton("gui.how-to-circle.generate");
-		BlockPos anchor = context.computeOnClient(client -> HologramManager.get().anchor());
-		check(CENTRE.equals(anchor), "Use my position centres the hologram on the player, got " + anchor);
+		context.waitForScreen(HowToBuildScreen.class);
+		context.clickScreenButton("gui.howtobuild.use_position");
+		check(CENTRE.equals(context.computeOnClient(client -> BuildSession.get().anchor())), "My position centres the preview on the player");
+		awaitGeometry(context);
+		context.takeScreenshot("gui_geometry");
+
+		for (String tab : List.of("materials", "details", "labels", "mirror", "build", "geometry")) {
+			context.clickScreenButton("gui.howtobuild.tab." + tab);
+			context.waitTicks(2);
+			check(context.computeOnClient(client -> HowToBuildConfig.get().tab.equalsIgnoreCase(tab)), "Tab " + tab + " opens");
+			context.takeScreenshot("gui_" + tab);
+		}
+
+		context.clickScreenButton("tool.howtobuild.spiral");
+		check(context.computeOnClient(client -> HowToBuildConfig.get().tool.equals("spiral")), "Choosing a tool in the list selects it");
+		awaitGeometry(context);
+		context.takeScreenshot("gui_spiral");
+		context.clickScreenButton("tool.howtobuild.circle");
+		context.clickScreenButton("gui.howtobuild.mode.simple");
+		check(context.computeOnClient(client -> HowToBuildConfig.get().advanced), "Simple / Advanced toggle switches to Advanced");
+		context.takeScreenshot("gui_advanced");
+		context.clickScreenButton("gui.howtobuild.mode.advanced");
+		context.clickScreenButton("gui.howtobuild.build_button");
+		context.waitForScreen(CommandBuildScreen.class);
+		context.takeScreenshot("gui_build_screen");
 		context.setScreen(() -> null);
 		context.waitTicks(2);
 	}
 
-	private void testCircle(ClientGameTestContext context, int diameter, FillMode fill, int centre, String screenshot) {
-		context.runOnClient(client -> {
-			HowToCircleConfig config = HowToCircleConfig.get();
-			config.shapeType = ShapeType.CIRCLE;
-			config.width = diameter;
-			config.height = diameter;
-			config.fillMode = fill;
-			HologramManager.get().setAnchor(CENTRE);
+	// ----------------------------------------------------------------- tools
+
+	private void testCircle(ClientGameTestContext context) {
+		GeometryResult odd = use(context, "circle", params("size", "15", "fill", "OUTLINE"), c -> {
 		});
+		check(odd.width() == 15 && odd.length() == 15 && odd.height() == 1, "Circle 15 spans exactly 15 × 15");
+		check(odd.centreCells().size() == 1, "Odd circle has a 1×1 centre");
 		view(context, "0.5 -45 -16 0 45");
-		HologramGeometry geometry = context.computeOnClient(client -> HologramManager.get().geometry());
-		check(geometry != null, "Hologram geometry exists for " + screenshot);
-		ResolvedDimensions dims = context.computeOnClient(client -> HologramManager.get().dimensions());
-		check(dims.width() == diameter && dims.height() == diameter, "Dimensions " + diameter);
-		check(dims.centreWidth() == centre && dims.centreHeight() == centre, "Centre " + centre + "x" + centre);
-		check(geometry.sectionCount > 0 && geometry.dimensionLineCount >= geometry.sectionCount, "Sections and dimension lines generated");
-		context.takeScreenshot(screenshot);
+		context.takeScreenshot("circle_15_outline");
 
-		if (diameter == 15) {
-			view(context, "4.5 -54 -6 20 40");
-			context.takeScreenshot(screenshot + "_closeup");
-		}
+		GeometryResult even = use(context, "circle", params("size", "16", "fill", "OUTLINE"), c -> {
+		});
+		check(even.width() == 16 && even.centreCells().size() == 4, "Even circle has a 2×2 centre");
+		context.waitTicks(5);
+		context.takeScreenshot("circle_16_outline_2x2_centre");
+
+		GeometryResult oval = use(context, "oval", params("width", "21", "length", "13", "fill", "FILLED"), c -> {
+		});
+		check(oval.width() == 21 && oval.length() == 13, "Oval 21 × 13 spans exactly 21 × 13");
+		context.waitTicks(5);
+		context.takeScreenshot("oval_21x13_filled");
 	}
 
-	private void testOval(ClientGameTestContext context, int width, int height, FillMode fill, String centre, String screenshot) {
-		context.runOnClient(client -> {
-			HowToCircleConfig config = HowToCircleConfig.get();
-			config.shapeType = ShapeType.OVAL;
-			config.width = width;
-			config.height = height;
-			config.fillMode = fill;
-			HologramManager.get().setAnchor(CENTRE);
-		});
-		view(context, "0.5 -42 -20 0 45");
-		ResolvedDimensions dims = context.computeOnClient(client -> HologramManager.get().dimensions());
-		check(dims.width() == width && dims.height() == height, "Oval dimensions " + width + "x" + height);
-		check(centre.equals(dims.centreLabel()), "Oval centre " + centre + ", got " + dims.centreLabel());
-		HologramGeometry geometry = context.computeOnClient(client -> HologramManager.get().geometry());
-		float[] b = geometry.bounds;
-		check(Math.round(b[3] - b[0]) == width && Math.round(b[5] - b[2]) == height, "Oval spans exactly " + width + "x" + height + " blocks in the world");
-		context.takeScreenshot(screenshot);
+	private void testCylinder(ClientGameTestContext context) {
+		GeometryResult r = use(context, "cylinder", params("width", "11", "length", "11", "height", "12", "style", "HOLLOW", "thickness", "1"),
+				c -> c.detailPreset = DetailPreset.DETAILED);
+		check(r.width() == 11 && r.height() == 12 && r.length() == 11, "Cylinder is 11 × 12 × 11");
+		check(isEmptyAtCentre(r), "Hollow cylinder is empty inside");
+		check(r.count(MaterialRole.TRIM) > 0, "Cylinder trim details are generated");
+		view(context, "0.5 -48 -14 0 30");
+		context.takeScreenshot("cylinder_hollow_trim");
 	}
 
-	private void testForcedCentre(ClientGameTestContext context) {
-		ResolvedDimensions forced = context.computeOnClient(client -> {
-			HowToCircleConfig config = HowToCircleConfig.get();
-			config.shapeType = ShapeType.CIRCLE;
-			config.width = 16;
-			config.centreSize = CentreSize.ONE_BY_ONE;
-			return HologramManager.get().dimensions();
+	private void testSpiral(ClientGameTestContext context) {
+		GeometryResult r = use(context, "spiral", params("outer_radius", "6", "stair_width", "3", "height", "16", "revolutions", "2"),
+				c -> c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS, ShapeKind.SLABS, ShapeKind.STAIRS)));
+		check(r.count(BlockShape.Kind.STAIRS) > 0, "Spiral uses stairs");
+		check(r.count(BlockShape.Kind.SLAB) > 0, "Spiral uses slabs");
+		check(r.count(BlockShape.Kind.FULL) > 0, "Spiral uses full blocks");
+		check(r.height() == 16, "Spiral is 16 blocks high");
+		boolean statesValid = context.computeOnClient(client -> {
+			BuildSession.Resolved resolved = BuildSession.get().resolved();
+
+			for (int i = 0; i < resolved.states().length; i++) {
+				BlockShape shape = resolved.result().placements().get(i).shape();
+				BlockState state = resolved.states()[i];
+
+				if (shape.kind() == BlockShape.Kind.STAIRS && !(state.getBlock() instanceof StairBlock)) return false;
+				if (shape.kind() == BlockShape.Kind.SLAB && !(state.getBlock() instanceof SlabBlock)) return false;
+			}
+
+			return true;
 		});
-		check(forced.width() == 17 && forced.adjusted(), "Forcing a 1x1 centre on 16 visibly adjusts it to 17");
-		context.runOnClient(client -> HowToCircleConfig.get().centreSize = CentreSize.AUTO);
+		check(statesValid, "Every stair placement resolves to a stair block and every slab placement to a slab block");
+		view(context, "0.5 -46 -14 0 35");
+		context.takeScreenshot("spiral_blocks_slabs_stairs");
+
+		GeometryResult detailed = use(context, "spiral", params("outer_radius", "6", "stair_width", "3", "height", "16", "revolutions", "2"), c -> {
+			c.materialTypes = new ArrayList<>(List.of(ShapeKind.STAIRS, ShapeKind.SLABS));
+			c.detailPreset = DetailPreset.ARCHITECTURAL;
+		});
+		check(detailed.blockCount() > r.blockCount() / 2, "Spiral with only stairs and slabs generates");
+		context.waitTicks(5);
+		context.takeScreenshot("spiral_architectural");
 	}
 
-	private void testLabelToggles(ClientGameTestContext context) {
-		context.runOnClient(client -> {
-			HowToCircleConfig config = HowToCircleConfig.get();
-			config.shapeType = ShapeType.OVAL;
-			config.width = 21;
-			config.height = 13;
-			config.fillMode = FillMode.FILLED;
-			config.showDimensions = false;
-			config.showPopups = false;
-		});
-		view(context, "0.5 -45 -16 0 45");
-		context.takeScreenshot("labels_off");
-		context.runOnClient(client -> HowToCircleConfig.get().showDimensions = true);
-		context.waitTicks(10);
-		context.takeScreenshot("dimension_labels_only");
-		context.runOnClient(client -> {
-			HowToCircleConfig.get().showPopups = true;
-			HowToCircleConfig.get().popupsFacePlayer = false;
-		});
-		context.waitTicks(10);
-		context.takeScreenshot("popups_fixed_orientation");
-		context.runOnClient(client -> HowToCircleConfig.get().popupsFacePlayer = true);
+	private void testSphere(ClientGameTestContext context) {
+		GeometryResult r = use(context, "sphere", params("diameter_x", "15", "diameter_y", "15", "diameter_z", "15", "style", "HOLLOW", "thickness", "1"),
+				c -> c.detailPreset = DetailPreset.DETAILED);
+		check(r.width() == 15 && r.height() == 15 && r.length() == 15, "Sphere 15 spans exactly 15 in every direction");
+		check(isEmptyAtCentre(r), "Hollow sphere is empty inside");
+		check(r.count(MaterialRole.PRIMARY) < r.blockCount(), "Detailed sphere uses detail materials");
+		view(context, "0.5 -45 -16 0 25");
+		context.takeScreenshot("sphere_hollow_detailed");
 	}
 
-	private void testVerticalAndRotation(ClientGameTestContext context) {
-		context.runOnClient(client -> {
-			HowToCircleConfig config = HowToCircleConfig.get();
-			config.plane = ShapePlacement.Plane.VERTICAL;
-			config.verticalOffset = 7;
-			config.fillMode = FillMode.OUTLINE;
+	private void testDome(ClientGameTestContext context) {
+		GeometryResult r = use(context, "dome", params("width", "21", "length", "21", "height", "11", "style", "HOLLOW"), c -> {
+			c.detailPreset = DetailPreset.CUSTOM;
+			c.customDetails = new ArrayList<>(List.of(DetailFeature.RADIAL_RIBS, DetailFeature.CROWN));
 		});
-		view(context, "0.5 -52 -22 0 5");
-		HologramGeometry geometry = context.computeOnClient(client -> HologramManager.get().geometry());
-		check(geometry.axisV == 1, "Vertical plane puts the height on the Y axis");
-		context.takeScreenshot("vertical_wall");
-		context.runOnClient(client -> {
-			HowToCircleConfig config = HowToCircleConfig.get();
-			config.plane = ShapePlacement.Plane.HORIZONTAL;
-			config.verticalOffset = 0;
-			config.rotated = true;
-		});
-		HologramGeometry rotated = context.computeOnClient(client -> HologramManager.get().geometry());
-		check(rotated.axisU == 2, "Rotating puts the width on the Z axis");
-		context.runOnClient(client -> HowToCircleConfig.get().rotated = false);
+		check(r.count(MaterialRole.TRIM) + r.count(MaterialRole.ACCENT) + r.count(MaterialRole.CAP) > 0, "Dome ribs and crown are generated");
+		view(context, "0.5 -44 -22 0 25");
+		context.takeScreenshot("dome_ribs_crown");
 	}
 
-	private void testLargeShapes(ClientGameTestContext context, TestSingleplayerContext singleplayer) {
-		for (FillMode fill : FillMode.values()) {
-			context.runOnClient(client -> {
-				HowToCircleConfig config = HowToCircleConfig.get();
-				config.shapeType = ShapeType.CIRCLE;
-				config.width = 100;
-				config.height = 100;
-				config.fillMode = fill;
+	private void testCorridor(ClientGameTestContext context) {
+		GeometryResult r = use(context, "corridor", params("width", "6", "height", "10", "length", "20", "profile", "ARCH", "arch_interval", "5"), c -> {
+		});
+		check(r.width() == 6 && r.height() == 10 && r.length() == 20, "Arch corridor is exactly 6 wide, 10 high and 20 long, got "
+				+ r.width() + " × " + r.height() + " × " + r.length());
+		GeometryResult detailed = use(context, "corridor", params("width", "6", "height", "10", "length", "20", "profile", "ARCH", "arch_interval", "5"),
+				c -> c.detailPreset = DetailPreset.ARCHITECTURAL);
+		check(detailed.values().getOrDefault("arches", 0.0) >= 3, "Corridor has repeating arches");
+		view(context, "-10.5 -50 -6 -110 25");
+		context.takeScreenshot("corridor_arch_6x10x20");
+	}
+
+	private void testMirror(ClientGameTestContext context) {
+		use(context, "rectangle", params("width", "5", "length", "3", "fill", "FILLED"), c -> {
+			c.mirror.enabled = true;
+			c.mirror.axis = MirrorAxis.X;
+			c.mirror.mode = MirrorMode.DUPLICATE;
+			c.mirror.offsetX = 3;
+		});
+		boolean exact = context.computeOnClient(client -> {
+			BuildSession.Resolved r = BuildSession.get().resolved();
+			List<Placement> placements = r.result().placements();
+			int plane = r.mirrorPlaneX();
+			int originals = 0;
+
+			for (Placement p : placements) {
+				if (p.mirrored()) continue;
+
+				originals++;
+
+				if (r.result().at(plane - 1 - p.x(), p.y(), p.z()) == null) return false;
+			}
+
+			return originals * 2 == placements.size();
+		});
+		check(exact, "Mirror with offset places an exact reflected copy of every block");
+		view(context, "0.5 -48 -10 0 50");
+		context.takeScreenshot("mirror_x_offset");
+	}
+
+	private void testLabels(ClientGameTestContext context) {
+		use(context, "rectangle", params("width", "6", "length", "1", "fill", "FILLED"), c -> c.labels.format = DimensionFormat.SIMPLIFIED);
+		List<String> simplified = labelTexts(context);
+		check(simplified.contains("6"), "A 6 × 1 section is labelled \"6\" with the simplified format, got " + simplified);
+		context.runOnClient(client -> HowToBuildConfig.get().labels.format = DimensionFormat.FULL);
+		List<String> full = labelTexts(context);
+		check(full.contains("6 × 1"), "Changing the format updates the label immediately to \"6 × 1\", got " + full);
+		context.runOnClient(client -> {
+			HowToBuildConfig.get().labels.format = DimensionFormat.CUSTOM;
+			HowToBuildConfig.get().labels.template = "W {width}";
+		});
+		check(labelTexts(context).contains("W 6"), "Custom label templates are applied");
+		view(context, "0.5 -55 -5 0 45");
+		context.takeScreenshot("labels_rectangle_6");
+	}
+
+	private static List<String> labelTexts(ClientGameTestContext context) {
+		return context.computeOnClient(client -> {
+			LabelSet labels = BuildSession.get().labels();
+			return labels == null ? List.of() : List.of(labels.plainTexts);
+		});
+	}
+
+	private void testBlockPicker(ClientGameTestContext context) {
+		context.setScreen(() -> new BlockPickerScreen(new HowToBuildScreen(), MaterialRole.PRIMARY, ShapeKind.SLABS, entry -> {
+		}));
+		context.waitForScreen(BlockPickerScreen.class);
+		check(context.computeOnClient(client -> {
+			List<BlockCatalog.Entry> entries = ((BlockPickerScreen) client.gui.screen()).entries();
+			return !entries.isEmpty() && entries.stream().allMatch(e -> e.block() instanceof SlabBlock);
+		}), "Slabs filter shows only real slab blocks");
+		context.takeScreenshot("block_picker_slabs");
+
+		check(context.computeOnClient(client -> {
+			List<BlockCatalog.Entry> entries = BlockCatalog.filter("", MaterialCategory.ALL, EnumSet.of(ShapeKind.SLABS, ShapeKind.STAIRS));
+			boolean union = entries.stream().allMatch(e -> e.block() instanceof SlabBlock || e.block() instanceof StairBlock);
+			boolean both = entries.stream().anyMatch(e -> e.block() instanceof SlabBlock) && entries.stream().anyMatch(e -> e.block() instanceof StairBlock);
+			return union && both;
+		}), "Slabs + Stairs shows the union of both types");
+		check(context.computeOnClient(client -> BlockCatalog.filter("oak", MaterialCategory.ALL, EnumSet.of(ShapeKind.STAIRS)).stream()
+				.anyMatch(e -> e.id().equals("minecraft:oak_stairs"))), "Search finds oak stairs");
+		check(context.computeOnClient(client -> BlockCatalog.filter("", MaterialCategory.WALLS, EnumSet.noneOf(ShapeKind.class)).stream()
+				.allMatch(e -> e.block() instanceof WallBlock)), "Walls category shows only wall blocks");
+		check(context.computeOnClient(client -> BlockCatalog.filter("", MaterialCategory.ALL, EnumSet.of(ShapeKind.BLOCKS)).stream()
+				.noneMatch(e -> e.block() instanceof SlabBlock || e.block() instanceof StairBlock)), "Blocks filter excludes slabs and stairs");
+		context.runOnClient(client -> ((BlockPickerScreen) client.gui.screen()).setFilter("stone", MaterialCategory.ALL,
+				EnumSet.of(ShapeKind.BLOCKS, ShapeKind.STAIRS)));
+		context.waitTicks(2);
+		context.takeScreenshot("block_picker_search_stone");
+		context.setScreen(() -> null);
+		context.waitTicks(2);
+	}
+
+	private void testLargeShapes(ClientGameTestContext context) {
+		for (String fill : List.of("FILLED", "OUTLINE")) {
+			use(context, "circle", params("size", "100", "fill", fill), c -> {
 			});
 			view(context, "0.5 -5 -75 0 35");
-			int rebuilds = context.computeOnClient(client -> HologramManager.get().rebuildCount());
+			int revision = context.computeOnClient(client -> BuildSession.get().revision());
 			context.runOnClient(client -> RenderStats.reset());
 			context.waitTicks(40);
-			int rebuildsAfter = context.computeOnClient(client -> HologramManager.get().rebuildCount());
-			check(rebuilds == rebuildsAfter, "Geometry is cached between frames (no rebuilds while nothing changes)");
+			check(revision == context.computeOnClient(client -> BuildSession.get().revision()), "Geometry is cached between frames");
 			long frames = context.computeOnClient(client -> RenderStats.frames());
 			double millis = context.computeOnClient(client -> RenderStats.averageMillisPerFrame());
-			int sections = context.computeOnClient(client -> HologramManager.get().sections().size());
-			System.out.printf("[how-to-circle] 100x100 %s: %d sections, %d frames, %.3f ms CPU per frame for hologram + labels%n",
-					fill, sections, frames, millis);
-			check(frames > 0, "Hologram render callback ran for 100x100 " + fill);
-			check(millis < 25, "100x100 " + fill + " hologram stays cheap to render (" + millis + " ms/frame)");
-			context.takeScreenshot("circle_100_" + fill.name().toLowerCase(java.util.Locale.ROOT));
+			System.out.printf("[howtobuild] 100x100 circle %s: %d frames, %.3f ms CPU per frame%n", fill, frames, millis);
+			check(frames > 0 && millis < 25, "100×100 " + fill + " circle renders cheaply (" + millis + " ms/frame)");
+			context.takeScreenshot("circle_100_" + fill.toLowerCase(java.util.Locale.ROOT));
 		}
-	}
 
-	private void testClearAndRegenerate(ClientGameTestContext context) {
-		context.runOnClient(client -> HologramManager.get().clear());
-		check(context.computeOnClient(client -> HologramManager.get().geometry() == null), "Clear removes the hologram");
-		context.runOnClient(client -> {
-			HowToCircleConfig config = HowToCircleConfig.get();
-			config.width = 15;
-			config.height = 15;
-			config.fillMode = FillMode.OUTLINE;
-			HologramManager.get().setAnchor(CENTRE);
+		use(context, "sphere", params("diameter_x", "64", "diameter_y", "64", "diameter_z", "64", "style", "HOLLOW"), c -> {
 		});
-		check(context.computeOnClient(client -> HologramManager.get().geometry() != null), "Regenerating after clear works");
+		view(context, "0.5 -20 -70 0 15");
+		context.runOnClient(client -> RenderStats.reset());
+		context.waitTicks(30);
+		double millis = context.computeOnClient(client -> RenderStats.averageMillisPerFrame());
+		System.out.printf("[howtobuild] 64 hollow sphere: %.3f ms CPU per frame%n", millis);
+		check(millis < 50, "64-block hollow sphere renders cheaply (" + millis + " ms/frame)");
+		context.takeScreenshot("sphere_64_hollow");
 	}
 
-	private void testCentreSelectionKey(ClientGameTestContext context, TestSingleplayerContext singleplayer) {
+	private void testCentreSelectionKey(ClientGameTestContext context) {
 		BlockPos expected = new BlockPos(3, -60, 5);
-		context.runOnClient(client -> HologramManager.get().clear());
+		use(context, "circle", params("size", "9"), c -> {
+		});
+		context.runOnClient(client -> BuildSession.get().clear());
 		singleplayer.getServer().runCommand("tp @a 3.5 -60 5.5 0 90");
 		context.waitTicks(10);
-		check(context.computeOnClient(client -> client.gui.screen() == null), "No screen is open before pressing the select key");
 		context.getInput().pressKey(KeyBindings.SELECT_CENTRE);
 		context.waitTicks(3);
 		check(context.computeOnClient(client -> CentreSelectionHandler.get().isActive()), "Select key enters centre selection mode");
@@ -273,26 +432,126 @@ public class HowToCircleClientGameTest implements FabricClientGameTest {
 		context.getInput().pressMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT);
 		context.waitTicks(3);
 		check(!context.computeOnClient(client -> CentreSelectionHandler.get().isActive()), "Left-click confirms the selection");
-		BlockPos anchor = context.computeOnClient(client -> HologramManager.get().anchor());
-		check(expected.equals(anchor), "Confirmed centre becomes the hologram centre, got " + anchor);
+		check(expected.equals(context.computeOnClient(client -> BuildSession.get().anchor())), "Confirmed centre becomes the preview centre");
 
-		// Cancel path
 		context.getInput().pressKey(KeyBindings.SELECT_CENTRE);
 		context.waitTicks(2);
 		context.getInput().pressMouse(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
 		context.waitTicks(3);
 		check(!context.computeOnClient(client -> CentreSelectionHandler.get().isActive()), "Right-click cancels selection");
-		check(expected.equals(context.computeOnClient(client -> HologramManager.get().anchor())), "Cancelling keeps the previous centre");
+		check(expected.equals(context.computeOnClient(client -> BuildSession.get().anchor())), "Cancelling keeps the previous centre");
 	}
 
 	private void testGuiOpenCloseRepeatedly(ClientGameTestContext context) {
 		for (int i = 0; i < 3; i++) {
 			context.getInput().pressKey(KeyBindings.OPEN_SETTINGS);
-			context.waitForScreen(CircleSettingsScreen.class);
+			context.waitForScreen(HowToBuildScreen.class);
 			context.waitTicks(2);
 			context.getInput().pressKey(GLFW.GLFW_KEY_ESCAPE);
 			context.waitForScreen(null);
 		}
+	}
+
+	// ----------------------------------------------------------------- command build
+
+	private void testCommandBuild(ClientGameTestContext context) {
+		singleplayer.getServer().runCommand("op @a");
+		singleplayer.getServer().runCommand("tp @a 8.5 -50 80.5 0 45");
+		singleplayer.getConnection().waitForChunksRender();
+		context.waitTicks(20);
+		CommandPermission.Status status = context.computeOnClient(client -> CommandPermission.check());
+		check(status == CommandPermission.Status.AVAILABLE, "Operator is detected as allowed to build with commands, got " + status);
+
+		context.runOnClient(client -> {
+			HowToBuildConfig c = HowToBuildConfig.get();
+			reset(c);
+			c.tool = "spiral";
+			c.setSetting(c.activeTool(), "outer_radius", "4");
+			c.setSetting(c.activeTool(), "stair_width", "2");
+			c.setSetting(c.activeTool(), "height", "8");
+			c.setSetting(c.activeTool(), "revolutions", "1");
+			c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS, ShapeKind.SLABS, ShapeKind.STAIRS));
+			c.sanitize();
+			BuildSession.get().setAnchor(BUILD_CENTRE);
+		});
+		awaitGeometry(context);
+
+		BuildAnalysis analysis = context.computeOnClient(client -> {
+			HowToBuildConfig c = HowToBuildConfig.get();
+			return BuildAnalysis.analyse(BuildSession.get().resolved(), new MaterialResolver(c.materials), c.build);
+		});
+		check(analysis.plan().fills() > 0 && analysis.plan().setblocks() > 0, "Plan uses both /fill and /setblock");
+		check(analysis.plan().commands().stream().anyMatch(cmd -> cmd.contains("facing=")), "Plan preserves stair block states");
+		check(!analysis.destructive(), "Building in open air replaces nothing");
+
+		Map<BlockPos, BlockState> expected = context.computeOnClient(client -> {
+			BuildSession.Resolved r = BuildSession.get().resolved();
+			Map<BlockPos, BlockState> map = new LinkedHashMap<>();
+
+			for (int i = 0; i < r.states().length; i++) {
+				Placement p = r.result().placements().get(i);
+				map.put(r.anchor().offset(p.x(), p.y(), p.z()), r.states()[i]);
+			}
+
+			return map;
+		});
+
+		check(context.computeOnClient(client -> CommandExecutor.get().start(analysis.plan(), analysis.undo(), "test", 20)), "Command build starts");
+		awaitExecutor(context);
+		context.takeScreenshot("command_build_spiral");
+		int mismatches = singleplayer.getServer().computeOnServer(server -> {
+			ServerLevel level = server.overworld();
+			int bad = 0;
+
+			for (Map.Entry<BlockPos, BlockState> e : expected.entrySet()) {
+				if (!level.getBlockState(e.getKey()).equals(e.getValue())) bad++;
+			}
+
+			return bad;
+		});
+		check(mismatches == 0, "Every block built by commands matches the preview exactly, including stair and slab states (" + mismatches + " mismatches)");
+
+		check(context.computeOnClient(client -> CommandExecutor.get().undo(20)), "Undo starts");
+		awaitExecutor(context);
+		int remaining = singleplayer.getServer().computeOnServer(server -> {
+			ServerLevel level = server.overworld();
+			int left = 0;
+
+			for (BlockPos pos : expected.keySet()) {
+				if (!level.getBlockState(pos).isAir()) left++;
+			}
+
+			return left;
+		});
+		check(remaining == 0, "Undo restores the previous blocks (" + remaining + " left)");
+	}
+
+	private void awaitExecutor(ClientGameTestContext context) {
+		for (int i = 0; i < 1200; i++) {
+			CommandExecutor.State state = context.computeOnClient(client -> CommandExecutor.get().state());
+
+			if (state == CommandExecutor.State.FINISHED) {
+				context.waitTicks(20);
+				return;
+			}
+
+			if (state == CommandExecutor.State.FAILED || state == CommandExecutor.State.STOPPED || state == CommandExecutor.State.PAUSED) {
+				String error = context.computeOnClient(client -> String.valueOf(CommandExecutor.get().lastError() == null ? null
+						: CommandExecutor.get().lastError().getString()));
+				throw new AssertionError("Command build " + state + ": " + error);
+			}
+
+			context.waitTicks(1);
+		}
+
+		throw new AssertionError("Command build timed out");
+	}
+
+	// ----------------------------------------------------------------- utilities
+
+	private static boolean isEmptyAtCentre(GeometryResult r) {
+		var b = r.bounds();
+		return r.at((b.minX() + b.maxX()) / 2, (b.minY() + b.maxY()) / 2, (b.minZ() + b.maxZ()) / 2) == null;
 	}
 
 	private static List<BlockState> snapshot(TestSingleplayerContext singleplayer) {
@@ -300,7 +559,7 @@ public class HowToCircleClientGameTest implements FabricClientGameTest {
 			ServerLevel level = server.overworld();
 			List<BlockState> states = new ArrayList<>();
 
-			for (BlockPos pos : BlockPos.betweenClosed(-60, -64, -60, 60, -55, 60)) {
+			for (BlockPos pos : BlockPos.betweenClosed(-60, -64, -60, 60, -40, 60)) {
 				states.add(level.getBlockState(pos));
 			}
 
@@ -313,6 +572,6 @@ public class HowToCircleClientGameTest implements FabricClientGameTest {
 			throw new AssertionError(message);
 		}
 
-		System.out.println("[how-to-circle] PASS: " + message);
+		System.out.println("[howtobuild] PASS: " + message);
 	}
 }
