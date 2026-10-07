@@ -191,6 +191,15 @@ GUI ─► config ─► BuildTool.generate (background thread, pure) ─► Geo
 - Edges are only drawn near the camera.
 - Shapes are limited to 1,000,000 blocks, with an estimate checked before allocating.
 
+Measured by the client game test on the GitHub Actions runner (software OpenGL), as CPU time per frame for the
+hologram and labels:
+
+| Shape | CPU per frame |
+|---|---|
+| 100 × 100 filled circle | 0.35 ms |
+| 100 × 100 outline circle | 0.43 ms |
+| 64-block hollow sphere | 7.3 ms |
+
 ## Building from source
 
 Requires JDK 25. The Gradle wrapper downloads Gradle 9.7.1.
