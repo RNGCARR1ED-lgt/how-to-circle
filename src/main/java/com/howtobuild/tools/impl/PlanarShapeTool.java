@@ -9,6 +9,7 @@ import com.howtobuild.details.DetailFeature;
 import com.howtobuild.details.DetailPreset;
 import com.howtobuild.geometry.CentreSize;
 import com.howtobuild.geometry.GeometryBuilder;
+import com.howtobuild.geometry.GeometryCenter;
 import com.howtobuild.geometry.Mask2D;
 import com.howtobuild.geometry.MaterialRole;
 import com.howtobuild.geometry.ResolvedDimensions;
@@ -20,6 +21,7 @@ import com.howtobuild.tools.Plane;
 import com.howtobuild.tools.ToolParameter;
 import com.howtobuild.tools.ToolSettings;
 import com.howtobuild.tools.ValidationResult;
+import com.howtobuild.tools.VerticalAnchor;
 import com.howtobuild.tools.capability.CommandBuildable;
 import com.howtobuild.tools.capability.Detailable;
 import com.howtobuild.tools.capability.Dimensionable;
@@ -87,6 +89,10 @@ public abstract class PlanarShapeTool implements BuildTool, Mirrorable, Rotatabl
 	@Override
 	public ValidationResult validate(ToolSettings settings, GenerationContext context) {
 		ValidationResult result = new ValidationResult();
+		String incompatible = GeometryCenter.incompatibility(settings.getEnum("centre_size", CentreSize.class), width(settings), length(settings));
+
+		if (incompatible != null) return result.error(incompatible);
+
 		ResolvedDimensions dims = dimensions(settings);
 		dims.notes().forEach(result::warn);
 
@@ -96,6 +102,11 @@ public abstract class PlanarShapeTool implements BuildTool, Mirrorable, Rotatabl
 		}
 
 		return result;
+	}
+
+	@Override
+	public VerticalAnchor verticalAnchor(ToolSettings settings) {
+		return settings.getEnum("plane", Plane.class) == Plane.FLOOR ? VerticalAnchor.BASE : VerticalAnchor.CENTRE;
 	}
 
 	@Override

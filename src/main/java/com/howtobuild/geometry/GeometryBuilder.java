@@ -18,6 +18,7 @@ public final class GeometryBuilder {
 	private final List<String> warnings = new ArrayList<>();
 	private final Map<String, Double> values = new LinkedHashMap<>();
 	private final List<int[]> centreCells = new ArrayList<>();
+	private final List<int[]> guides = new ArrayList<>();
 
 	public void set(int x, int y, int z, MaterialRole role, BlockShape shape) {
 		cells.put(Voxels.pack(x, y, z), new Placement(x, y, z, role, shape, 0, false));
@@ -106,6 +107,18 @@ public final class GeometryBuilder {
 
 	public Map<String, Double> values() {
 		return values;
+	}
+
+	/**
+	 * Adds a guide cell: part of a reference outline (e.g. the master circle a spiral follows) that is drawn in its own
+	 * hologram style but never built.
+	 */
+	public void guide(int x, int y, int z) {
+		guides.add(new int[] {x, y, z});
+	}
+
+	public List<int[]> guides() {
+		return guides;
 	}
 
 	public void centreCell(int x, int y, int z) {

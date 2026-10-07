@@ -23,6 +23,7 @@ public final class GeometryResult {
 	private final String toolId;
 	private final List<Placement> placements;
 	private final List<int[]> centreCells;
+	private List<int[]> guides = List.of();
 	private final Map<String, Double> values;
 	private final List<String> warnings;
 	private final Box bounds;
@@ -54,7 +55,19 @@ public final class GeometryResult {
 	}
 
 	public static GeometryResult of(String toolId, GeometryBuilder builder, int planeNormalAxis) {
-		return new GeometryResult(toolId, builder.snapshot(), builder.centreCells(), builder.values(), builder.warnings(), planeNormalAxis);
+		return new GeometryResult(toolId, builder.snapshot(), builder.centreCells(), builder.values(), builder.warnings(), planeNormalAxis)
+				.withGuides(builder.guides());
+	}
+
+	/** The same result with reference guide cells (drawn, never built). */
+	public GeometryResult withGuides(List<int[]> guideCells) {
+		this.guides = List.copyOf(guideCells);
+		return this;
+	}
+
+	/** Reference outline cells (e.g. a spiral's master circle), relative to the anchor; never built. */
+	public List<int[]> guides() {
+		return guides;
 	}
 
 	public String toolId() {

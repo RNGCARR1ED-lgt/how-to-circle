@@ -18,6 +18,7 @@ import com.howtobuild.tools.GenerationContext;
 import com.howtobuild.tools.ToolParameter;
 import com.howtobuild.tools.ToolSettings;
 import com.howtobuild.tools.ValidationResult;
+import com.howtobuild.tools.VerticalAnchor;
 import com.howtobuild.tools.capability.CommandBuildable;
 import com.howtobuild.tools.capability.Detailable;
 import com.howtobuild.tools.capability.Dimensionable;
@@ -81,6 +82,11 @@ public final class SphereTool implements BuildTool, Mirrorable, Detailable, Mate
 		r.warnIf(s.getEnum("style", Style.class) == Style.HOLLOW && 2 * t >= min, "Shell thickness " + t + " is at least half the smallest diameter, so the sphere is solid.");
 		r.warnIf(s.getEnum("opening", Opening.class) != Opening.NONE && s.getInt("opening_size") >= min, "The opening is as wide as the sphere.");
 		return r;
+	}
+
+	@Override
+	public VerticalAnchor verticalAnchor(ToolSettings settings) {
+		return VerticalAnchor.CENTRE;
 	}
 
 	@Override

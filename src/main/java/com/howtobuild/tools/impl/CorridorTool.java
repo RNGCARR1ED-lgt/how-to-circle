@@ -8,10 +8,15 @@ import com.howtobuild.details.DetailFeature;
 import com.howtobuild.details.DetailPreset;
 import com.howtobuild.details.DetailSettings;
 import com.howtobuild.details.SmoothingPass;
+import com.howtobuild.details.SlabMode;
+import com.howtobuild.geometry.BlockShape;
 import com.howtobuild.geometry.Centring;
+import com.howtobuild.geometry.Facing;
 import com.howtobuild.geometry.GeometryBuilder;
 import com.howtobuild.geometry.Mask2D;
 import com.howtobuild.geometry.MaterialRole;
+import com.howtobuild.geometry.Placement;
+import com.howtobuild.geometry.ShapeKind;
 import com.howtobuild.tools.BuildTool;
 import com.howtobuild.tools.GenerationContext;
 import com.howtobuild.tools.ToolParameter;
@@ -33,6 +38,17 @@ import com.howtobuild.tools.capability.Mirrorable;
  * </ul>
  * Repeated details (arch frames, ribs, keystones, columns, recesses) are distributed evenly along the length every
  * {@code arch_interval} blocks, centred so both ends match.
+ *
+ * <h2>Materials</h2>
+ * The Blocks / Slabs / Stairs selection is assigned to three parts: the <b>structure</b> (walls, floor, columns), the
+ * <b>arch curve</b> and the <b>trim</b> (frames, ribs, keystones). Shaping is done in place on the exact cross-section, so
+ * the corridor's dimensions never change:
+ * <ul>
+ *     <li>stairs on the curve sit on its diagonal corners and face the solid side: upside-down under the curve (intrados),
+ *     upright on the roof (extrados), so they follow the curvature on both sides of the arch;</li>
+ *     <li>slabs take the half that matches the exposed side (top slab under the curve, bottom slab on top), or the
+ *     configured slab mode.</li>
+ * </ul>
  */
 public final class CorridorTool implements BuildTool, Mirrorable, Detailable, MaterialAssignable, Dimensionable, CommandBuildable, SmoothingPass.Smoothable {
 	public enum Profile {
@@ -51,6 +67,18 @@ public final class CorridorTool implements BuildTool, Mirrorable, Detailable, Ma
 	public enum Axis {
 		ALONG_Z,
 		ALONG_X
+	}
+
+	/** What a part of the corridor is built from. */
+	public enum ArchPart {
+		AUTO,
+		BLOCKS,
+		SLABS,
+		STAIRS
+	}
+
+	/** Resolved material types for the three parts. */
+	public record PartTypes(ShapeKind structure, ShapeKind curve, ShapeKind trim) {
 	}
 
 	private enum Part {
@@ -80,7 +108,39 @@ public final class CorridorTool implements BuildTool, Mirrorable, Detailable, Ma
 				ToolParameter.bool("ceiling", true).advanced(),
 				ToolParameter.bool("left_wall", true).advanced(),
 				ToolParameter.bool("right_wall", true).advanced(),
+				ToolParameter.choice("structure_part", ArchPart.AUTO).section("arch"),
+				ToolParameter.choice("curve_part", ArchPart.AUTO).section("arch"),
+				ToolParameter.choice("trim_part", ArchPart.AUTO).section("arch"),
 				ToolParameter.choice("axis", Axis.ALONG_Z).section("centre"));
+	}
+
+	@Override
+	public boolean usesMaterialTypes() {
+		return true;
+	}
+
+	/**
+	 * Resolves the part assignment from the selected material types. Auto: the structure prefers blocks, then slabs, then
+	 * stairs; the curve prefers stairs, then slabs; the trim uses the structure's type. An explicit choice that is not
+	 * selected falls back to Auto (and validation says so).
+	 */
+	public static PartTypes partTypes(ToolSettings s, Set<ShapeKind> types) {
+		ShapeKind structure = pick(s.getEnum("structure_part", ArchPart.class), types,
+				types.contains(ShapeKind.BLOCKS) ? ShapeKind.BLOCKS : types.contains(ShapeKind.SLABS) ? ShapeKind.SLABS : ShapeKind.STAIRS);
+		ShapeKind curve = pick(s.getEnum("curve_part", ArchPart.class), types,
+				types.contains(ShapeKind.STAIRS) ? ShapeKind.STAIRS : types.contains(ShapeKind.SLABS) ? ShapeKind.SLABS : structure);
+		ShapeKind trim = pick(s.getEnum("trim_part", ArchPart.class), types, structure);
+		return new PartTypes(structure, curve, trim);
+	}
+
+	private static ShapeKind pick(ArchPart requested, Set<ShapeKind> types, ShapeKind auto) {
+		ShapeKind kind = switch (requested) {
+			case BLOCKS -> ShapeKind.BLOCKS;
+			case SLABS -> ShapeKind.SLABS;
+			case STAIRS -> ShapeKind.STAIRS;
+			case AUTO -> null;
+		};
+		return kind != null && types.contains(kind) ? kind : auto;
 	}
 
 	@Override
@@ -98,6 +158,18 @@ public final class CorridorTool implements BuildTool, Mirrorable, Detailable, Ma
 		r.warnIf(t >= h, "⚠ Wall thickness " + t + " leaves no headroom inside a " + h + "-high corridor.");
 		r.warnIf(s.getEnum("profile", Profile.class) == Profile.ARCH && h < (w + 1) / 2,
 				"⚠ The corridor is lower than half its width, so the arch is flattened.");
+
+		for (String part : List.of("structure_part", "curve_part", "trim_part")) {
+			ArchPart requested = s.getEnum(part, ArchPart.class);
+			boolean selected = switch (requested) {
+				case AUTO -> true;
+				case BLOCKS -> ctx.allows(ShapeKind.BLOCKS);
+				case SLABS -> ctx.allows(ShapeKind.SLABS);
+				case STAIRS -> ctx.allows(ShapeKind.STAIRS);
+			};
+			r.warnIf(!selected, "⚠ " + requested + " are not selected in Material Types; " + part.replace('_', ' ') + " uses Auto.");
+		}
+
 		return r;
 	}
 
@@ -246,12 +318,86 @@ public final class CorridorTool implements BuildTool, Mirrorable, Detailable, Ma
 			}
 		}
 
+		shapeParts(out, s, ctx, profile, alongZ, minAcross, w, h, outer, interior);
 		out.centreCells(alongZ ? w : length, ctx.alignX(), 0, true, alongZ ? length : w, ctx.alignZ());
 		out.value("width", w);
 		out.value("height", h);
 		out.value("length", length);
 		out.value("thickness", t);
 		out.value("arches", length > archOffset ? (length - 1 - archOffset) / interval + 1 : 0);
+	}
+
+	/**
+	 * Turns blocks into slabs and stairs according to the part assignment, in place (the cell set never changes).
+	 *
+	 * <p>Neighbours are classified with the cross-section masks the corridor is built from: <em>interior</em> air (inside
+	 * the corridor) and <em>exterior</em> air (outside the profile). A curve cell with interior air below and on one
+	 * side is an intrados corner (upside-down stair facing away from the air); one with exterior air above and on one
+	 * side is an extrados corner (upright stair facing away from the air). This also works for one-block-thin shells,
+	 * where a cell has air on both faces; the intrados, seen from inside the corridor, wins.
+	 */
+	static void shapeParts(GeometryBuilder out, ToolSettings s, GenerationContext ctx, Profile profile, boolean alongZ, int minAcross, int w, int h,
+			Mask2D outer, Mask2D interior) {
+		PartTypes types = partTypes(s, ctx.materialTypes());
+
+		if (types.structure() == ShapeKind.BLOCKS && types.curve() == ShapeKind.BLOCKS && types.trim() == ShapeKind.BLOCKS) return;
+
+		int springline = profile == Profile.ARCH ? h - Math.min(h, (w + 1) / 2) : 0;
+		Facing positive = alongZ ? Facing.EAST : Facing.SOUTH;
+		Facing negative = positive.opposite();
+		int dx = alongZ ? 1 : 0;
+		int dz = alongZ ? 0 : 1;
+
+		for (Placement p : out.snapshot()) {
+			boolean trim = p.role() == MaterialRole.TRIM || p.role() == MaterialRole.ACCENT;
+			boolean curved = p.role() != MaterialRole.FLOOR && p.y() >= springline;
+			int u = (alongZ ? p.x() : p.z()) - minAcross;
+			int v = p.y();
+			boolean inBelow = v > 0 && !out.has(p.x(), v - 1, p.z()) && interior.contains(u, v - 1);
+			boolean inNeg = !out.has(p.x() - dx, v, p.z() - dz) && interior.contains(u - 1, v);
+			boolean inPos = !out.has(p.x() + dx, v, p.z() + dz) && interior.contains(u + 1, v);
+			boolean exAbove = !out.has(p.x(), v + 1, p.z()) && !outer.contains(u, v + 1);
+			boolean exNeg = !out.has(p.x() - dx, v, p.z() - dz) && !outer.contains(u - 1, v);
+			boolean exPos = !out.has(p.x() + dx, v, p.z() + dz) && !outer.contains(u + 1, v);
+			boolean intrados = curved && inBelow && inNeg != inPos;
+			boolean extrados = curved && !intrados && exAbove && exNeg != exPos;
+			boolean surface = curved && (inBelow || exAbove);
+			ShapeKind own = trim ? types.trim() : types.structure();
+			ShapeKind curveKind = trim ? types.trim() : types.curve();
+			BlockShape shape;
+
+			if (curveKind == ShapeKind.STAIRS && intrados) {
+				shape = BlockShape.stairs(inNeg ? positive : negative, BlockShape.Half.TOP);
+			} else if (curveKind == ShapeKind.STAIRS && extrados) {
+				shape = BlockShape.stairs(exNeg ? positive : negative, BlockShape.Half.BOTTOM);
+			} else if (curveKind == ShapeKind.SLABS && surface) {
+				shape = slab(inBelow ? BlockShape.TOP_SLAB : BlockShape.BOTTOM_SLAB, ctx.slabMode());
+			} else {
+				shape = solid(own, u, w, inBelow, positive, negative, ctx.slabMode());
+			}
+
+			if (!shape.equals(p.shape())) out.put(p.withShape(shape));
+		}
+	}
+
+	/** A cell that is not shaped by the curve: full block, double slab, or (stairs only) a stair facing the corridor's middle. */
+	private static BlockShape solid(ShapeKind kind, int u, int w, boolean airBelow, Facing positive, Facing negative, SlabMode slabMode) {
+		return switch (kind) {
+			case BLOCKS -> BlockShape.FULL;
+			case SLABS -> slabMode == SlabMode.TOP ? BlockShape.TOP_SLAB : slabMode == SlabMode.BOTTOM ? BlockShape.BOTTOM_SLAB : BlockShape.DOUBLE_SLAB;
+			case STAIRS -> {
+				yield BlockShape.stairs(2 * u + 1 < w ? positive : negative, airBelow ? BlockShape.Half.TOP : BlockShape.Half.BOTTOM);
+			}
+		};
+	}
+
+	private static BlockShape slab(BlockShape automatic, SlabMode mode) {
+		return switch (mode) {
+			case AUTOMATIC -> automatic;
+			case BOTTOM -> BlockShape.BOTTOM_SLAB;
+			case TOP -> BlockShape.TOP_SLAB;
+			case DOUBLE -> BlockShape.DOUBLE_SLAB;
+		};
 	}
 
 	private static int lowestRow(Mask2D mask) {

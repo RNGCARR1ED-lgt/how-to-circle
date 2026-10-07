@@ -146,7 +146,10 @@ class SpiralStaircaseTest {
 		assertTrue(r.count(MaterialRole.RAIL) > 0);
 		assertTrue(r.count(MaterialRole.FLOOR) > 0);
 		assertTrue(r.at(0, 5, 0) != null, "central column");
-		assertEquals(2 * 6 + 3, r.width(), "wall attachment surrounds the stairs");
+		assertEquals(2 * 6 + 1, r.width(), "the wall takes the footprint's outer ring; nothing goes outside it");
+		GeometryResult outside = TestShapes.generate("spiral", TestShapes.details(DetailFeature.WALL_ATTACHMENT), "outer_radius", 6,
+				"stair_width", 3, "allow_outside", true);
+		assertEquals(2 * 6 + 3, outside.width(), "with Allow details outside boundary the wall surrounds the footprint");
 	}
 
 	private static void assertHeightRises(GeometryResult r) {
