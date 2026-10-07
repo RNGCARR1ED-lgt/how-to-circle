@@ -11,6 +11,7 @@ import org.lwjgl.glfw.GLFW;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.WallBlock;
@@ -632,7 +633,18 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		});
 		check(mismatches == 0, "Every block built by commands matches the preview exactly, including stair and slab states (" + mismatches + " mismatches)");
 		check(expected.keySet().stream().allMatch(pos -> pos.getY() >= BUILD_CENTRE.getY()), "No planned block lies below the centre's layer");
-		check(groundBefore.equals(ground(singleplayer)), "The ground under the staircase is untouched by the command build");
+		List<BlockState> groundAfter = ground(singleplayer);
+		boolean groundIntact = groundBefore.size() == groundAfter.size();
+
+		for (int i = 0; groundIntact && i < groundBefore.size(); i++) {
+			BlockState before = groundBefore.get(i);
+			BlockState after = groundAfter.get(i);
+			// Vanilla turns grass covered by an opaque block into dirt by itself; anything else would be the build.
+			boolean grassDecay = before.is(Blocks.GRASS_BLOCK) && after.is(Blocks.DIRT);
+			groundIntact = before.equals(after) || grassDecay;
+		}
+
+		check(groundIntact, "The ground under the staircase is untouched by the command build (only vanilla grass decay)");
 
 		check(context.computeOnClient(client -> CommandExecutor.get().undo(20)), "Undo starts");
 		awaitExecutor(context);
