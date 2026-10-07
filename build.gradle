@@ -15,7 +15,7 @@ loom {
 	splitEnvironmentSourceSets()
 
 	mods {
-		"how-to-circle" {
+		"howtobuild" {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
 		}
@@ -45,7 +45,7 @@ test {
 fabricApi {
 	configureTests {
 		createSourceSet = true
-		modId = "how-to-circle-gametest"
+		modId = "howtobuild-gametest"
 		enableGameTests = false
 		enableClientGameTests = true
 		eula = true // By setting this to true, you agree to the Minecraft EULA (https://aka.ms/MinecraftEULA).

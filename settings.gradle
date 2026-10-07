@@ -10,4 +10,4 @@ pluginManagement {
 }
 
 // Should match your modid
-rootProject.name = 'how-to-circle'
+rootProject.name = 'how-to-build'
