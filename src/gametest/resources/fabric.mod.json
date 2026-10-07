@@ -1,15 +1,15 @@
 {
 	"schemaVersion": 1,
-	"id": "how-to-circle-gametest",
+	"id": "howtobuild-gametest",
 	"version": "1.0.0",
-	"name": "How to Circle client game tests",
+	"name": "How to Build client game tests",
 	"environment": "client",
 	"entrypoints": {
 		"fabric-client-gametest": [
-			"com.howtocircle.gametest.HowToCircleClientGameTest"
+			"com.howtobuild.gametest.HowToBuildClientGameTest"
 		]
 	},
 	"depends": {
-		"how-to-circle": "*"
+		"howtobuild": "*"
 	}
 }
