@@ -234,10 +234,14 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 	}
 
 	private void testCylinder(ClientGameTestContext context) {
+		GeometryResult plain = use(context, "cylinder", params("width", "11", "length", "11", "height", "12", "style", "HOLLOW", "thickness", "1"), c -> {
+		});
+		check(plain.width() == 11 && plain.height() == 12 && plain.length() == 11, "Cylinder is 11 × 12 × 11");
+		check(isEmptyAtCentre(plain), "Hollow cylinder is empty inside");
+		// The detailed preset adds a rim that projects one block beyond the wall at the top.
 		GeometryResult r = use(context, "cylinder", params("width", "11", "length", "11", "height", "12", "style", "HOLLOW", "thickness", "1"),
 				c -> c.detailPreset = DetailPreset.DETAILED);
-		check(r.width() == 11 && r.height() == 12 && r.length() == 11, "Cylinder is 11 × 12 × 11");
-		check(isEmptyAtCentre(r), "Hollow cylinder is empty inside");
+		check(isEmptyAtCentre(r), "Detailed hollow cylinder is still empty inside");
 		check(r.count(MaterialRole.TRIM) > 0, "Cylinder trim details are generated");
 		view(context, "0.5 -48 -14 0 30");
 		context.takeScreenshot("cylinder_hollow_trim");
@@ -345,9 +349,9 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		check(full.contains("6 × 1"), "Changing the format updates the label immediately to \"6 × 1\", got " + full);
 		context.runOnClient(client -> {
 			HowToBuildConfig.get().labels.format = DimensionFormat.CUSTOM;
-			HowToBuildConfig.get().labels.template = "W {width}";
+			HowToBuildConfig.get().labels.template = "Size {width}";
 		});
-		check(labelTexts(context).contains("W 6"), "Custom label templates are applied");
+		check(labelTexts(context).contains("Size 6"), "Custom label templates are applied");
 		view(context, "0.5 -55 -5 0 45");
 		context.takeScreenshot("labels_rectangle_6");
 	}
@@ -471,6 +475,8 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 			c.setSetting(c.activeTool(), "height", "8");
 			c.setSetting(c.activeTool(), "revolutions", "1");
 			c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS, ShapeKind.SLABS, ShapeKind.STAIRS));
+			// The central column gives the plan long runs of identical blocks, which become /fill commands.
+			c.detailPreset = DetailPreset.SIMPLE;
 			c.sanitize();
 			BuildSession.get().setAnchor(BUILD_CENTRE);
 		});

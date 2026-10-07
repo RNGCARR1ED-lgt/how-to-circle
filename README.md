@@ -1,206 +1,259 @@
-# How to Circle
+# How to Build
 
-A client-side Fabric mod for **Minecraft 26.2** that shows block-perfect circles and ovals as holograms, so you can plan
-a build before placing anything.
+A client-side Fabric mod for **Minecraft 26.2**: a geometry and construction toolkit that shows block-exact holograms of
+circles, ovals, squares, rectangles, cylinders, spheres, domes, spiral staircases and corridors before you place
+anything. It started as *How to Circle*, and every How to Circle feature is still here.
 
-Enter a width and height, pick a centre, and the mod shows every block of the shape as a translucent blueprint. Blocks
-that line up in a straight line are merged into one **connected section** and labelled like a CAD drawing: `7 by 1`,
-`4 by 3`, and so on. It never places, breaks or changes real blocks, and it doesn't spawn entities.
+Pick a tool and type its sizes. The hologram updates while you type and shows every block as the real block:
+- slabs are drawn as half blocks and stairs as real stair shapes, facing and corner shapes included;
+- each block is tinted with its material colour.
 
-![A 15×15 outline circle with connected sections, dimension lines and pop-up labels](docs/screenshots/0002_circle_15_outline_closeup.jpg)
+CAD-style labels measure the result. The mirror tool copies it exactly across X, Z or both. If the server already
+lets you use `/fill` and `/setblock`, the mod can build it for you with those commands; otherwise it guides you while
+you build by hand.
 
-## Features
+**Preview never changes the world.** The mod spawns no entities, sends no custom packets and bypasses nothing.
 
-- **Circles and ovals** of any size from 1×1 up to 1024×1024, filled or outline only. The shapes are symmetric,
-  deterministic and have no gaps (see [Geometry](#geometry)).
-- **Centre handling for odd, even and mixed sizes.** Odd sizes have a 1×1 centre, even sizes a 2×2 centre, and mixed
-  sizes (for example 21×12) a 1×2 centre. You choose which side of the selected block the 2-wide centre extends to.
-  Forcing a 1×1 or 2×2 centre on the wrong parity adjusts the size by one block and shows the change in the GUI. The
-  mod never draws an off-centre shape without telling you.
-- **Holographic rendering.** Each connected section is drawn as one translucent box with bright edges, plus faint grid
-  lines so single blocks can still be counted. The centre block(s) are marked in a contrasting colour. Colour and
-  opacity are configurable, and an optional *see through blocks* mode helps when planning underground.
-- **Connected sections.** Straight runs of blocks are grouped horizontally or vertically, and identical stacked runs are
-  merged into rectangles. For example, a filled 7×7 circle becomes `3 by 1`, `5 by 1`, `7 by 3`, `5 by 1`, `3 by 1`.
-  Blocks that only touch diagonally are never grouped.
-- **Dimension labels.** Each section gets a blueprint-style dimension line with end ticks on its outer side:
-  - lines show their full size (`7 by 1`);
-  - rectangles show the width along one side and the height along the other.
-- **Pop-up holograms.** Floating labels above each section that:
-  - fade in and out;
-  - face the player, or optionally stay upright along the section;
-  - scale with distance;
-  - move aside or hide automatically when they would overlap.
-- **Centre selection mode** with a pulsing marker and a preview of the shape's footprint.
-- **A single settings screen** with three panels (Circle, Dimensions, Position). It doesn't pause the game, so you see
-  each change on the hologram straight away.
+<!-- screenshots: docs/screenshots -->
 
-| | |
+## Tools
+
+| Tool | What it makes | Main options |
+|---|---|---|
+| **Circle / Oval** | Block-perfect circles and ellipses | Size or width × length, filled / outline / ring with thickness, 1×1 or 2×2 centre, floor or wall |
+| **Square / Rectangle** | Squares and rectangles | Same options as circles |
+| **Cylinder** | Round or oval cylinders | Width, length, height, solid or hollow, wall thickness, caps, vertical or lying along X / Z |
+| **Sphere** | Spheres and ellipsoids | Three diameters, solid or hollow, thickness, half / quarter slices, top / bottom / side opening |
+| **Dome** | Half-ellipsoid domes | Width, length, height, hollow, floor, open top (oculus), cutaway |
+| **Spiral Staircase** | Spiral stairs | Outer radius, stair width, height, revolutions + extra angle, step rise, direction, start angle and height, a block type for each part (step, support, trim), support depth |
+| **Corridor** | Tunnels | Width, height, length, thickness, arch / dome / sphere profile, filled / hollow / shell / open style, floor, ceiling and walls on or off, an arch every N blocks, runs along X or Z |
+| **Mirror** | Exact copies of any shape | Axis X, Z or X + Z; preview, both or replace; 1- or 2-block mirror centre; offset |
+
+**Every tool shares the following:**
+
+**Geometry**
+- Exact integer geometry, so the result is symmetric, gap-free and the same every time.
+- The common 1×1 / 2×2 centre system.
+- 90° rotation and X / Y / Z offsets.
+
+**Materials**
+- Material types *Blocks*, *Slabs* and *Stairs*, in any combination.
+- Material roles (primary, trim, accent, step, support, cap, inner, rail and floor), each with its own block, slab and
+  stairs.
+- Deterministic variation (none / subtle / medium / heavy) with variant blocks.
+- Patterns: stripes, checker, rings, bands and sections.
+
+**Details**
+- Presets: None, Simple, Detailed, Architectural and Decorative, or Custom to pick each detail.
+- Planar tools: edge trim, rings and accents.
+- Cylinders: rims and bands.
+- Spheres and domes:
+  - latitude and longitude rings, equator band, pole caps;
+  - radial ribs, crown and finial;
+  - smooth curves built from stairs and slabs.
+- Staircases: rails, support pillars, central column, landing, ring supports and wall attachment.
+- Corridors:
+  - ribbing, arch frames and keystones;
+  - ceiling ribs, side columns, floor border;
+  - wall panels, light recesses, alternating arches and entry frame.
+
+**Spiral staircase**
+- Works with any combination of blocks, slabs and stairs.
+- Stair blocks face along the direction of travel; inner and outer corner shapes are computed exactly as vanilla
+  does.
+- Slab mode: automatic, bottom, top or double.
+- Warns about impossible settings, such as a stair width larger than the radius, too little headroom or steps too
+  far apart to walk.
+
+## Labels
+
+Labels are measured from the generated block coordinates, never from the input values, so a label always matches
+the blocks.
+
+- **Sections**:
+  - flat shapes are split into straight runs and rectangles (`7 × 1`, `4 × 3`), each with a CAD dimension line;
+  - 3D shapes are split into exact boxes per material.
+- **Overall size**: width (X), length (Z) and height (Y) lines.
+- **Summary**: tool, width, height, length, thickness, radius, diameter, steps, revolutions, material, block count.
+  You choose which appear.
+- **Formats**:
+  - Full (`6 × 1`), Simplified (`6`), Width only, Height only, Named (`WIDTH: 6`);
+  - a custom template such as `W {width} / H {height}`;
+  - units and decimals.
+- **Style**:
+  - placement: automatic, above, below, inside, outside, left or right;
+  - text size and opacity; background, border and padding;
+  - leader lines, distance scaling, facing the player or fixed;
+  - visible through walls.
+- Labels fade in and out and move aside or hide when they would overlap.
+
+## Building
+
+| Method | What happens |
 |---|---|
-| ![Settings screen](docs/screenshots/0000_how_to_circle_gui.jpg) | ![Filled 15×15 circle](docs/screenshots/0004_circle_15_filled_closeup.jpg) |
-| ![21×12 oval with a 1×2 centre](docs/screenshots/0008_oval_21x12_mixed_parity.jpg) | ![Vertical (wall) circle](docs/screenshots/0012_vertical_wall.jpg) |
-| ![Centre selection mode](docs/screenshots/0015_centre_selection_marker.jpg) | ![100×100 outline circle](docs/screenshots/0014_circle_100_outline.jpg) |
+| **Normal placement** (default view) | You build by hand along the hologram. Placed blocks turn green, wrong blocks red, and the HUD counts progress. Nothing is automated. |
+| **Command build** | The build screen shows a full summary and asks for confirmation. Then `/fill` and `/setblock` commands are sent through the normal command path, as if you typed them. |
+| **Export** | Copy the commands, or save them as `.mcfunction` (with an undo file) under `howtobuild/exports`. |
 
-These are real screenshots taken by the client game test in Minecraft 26.2. The full set is in
-[`docs/screenshots`](docs/screenshots).
+Command building:
 
-## Installing
+**Planning**
+- **Exact.** Blocks are grouped by their exact block state and split into exact boxes. A `/fill` never covers space
+  that should stay empty, and stair facing, half and shape and slab type are preserved.
+- **Within limits.** Boxes are split at the fill limit (32768 by default) and built bottom-up. Blocks that are
+  already correct are skipped. *Keep existing* uses `fill … keep`.
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer for Minecraft 26.2.
-2. Put [Fabric API](https://modrinth.com/mod/fabric-api) (0.161.0+26.2 or newer) and `how-to-circle-<version>.jar` in
-   your `mods` folder.
-3. Java 25 is required, which matches Minecraft 26.2.
+**Permissions and rate**
+- **Permission.** The mod checks the permission level and the command tree the server sent. Without permission,
+  building is unavailable and the screen says why; copy and save still work. Nothing is spoofed, and the server
+  checks every command.
+- **Rate.** Operators send 2 commands per tick by default (configurable). Players who may use the commands but are
+  not operators are throttled to 1 command every 1.25 s, which stays under vanilla spam protection.
 
-The mod is client-only, so you can use it on any server.
+**While building**
+- Pause, resume and stop.
+- Progress and estimated time remaining.
+- Server errors (unknown command, area too large, unloaded chunk, invalid block) pause or stop the build with an
+  explanation. Retry re-sends the last two seconds of commands, which is safe because `/fill` and `/setblock` are
+  idempotent.
+- The success message for each command is hidden from your chat while building.
+
+**Safety**
+- Warnings before replacing existing blocks, blocks with contents (chests, signs), unloaded chunks and positions
+  outside the world height.
+- **Undo** restores the blocks that were there before the last build (as your client saw them).
 
 ## Using it
 
 | Key (default) | Action |
 |---|---|
-| `H` | Open the How to Circle screen |
-| `J` | Start or cancel centre selection |
-| *(unbound)* | Show or hide the hologram |
+| `H` | Open How to Build |
+| `J` | Select the centre (left-click confirms, right-click cancels, sneak targets the block itself) |
+| *(unbound)* | Select the mirror centre, show/hide the hologram, open the build screen, pause/resume a command build |
 
-You can change these under *Options → Controls → Key Binds → How to Circle*.
+The screen covers only the left part of the window, so you can watch the hologram change.
 
-### Quick start
+**Layout**
+- **Tools**: the tool list, with favourites first (★), and a Simple / Advanced switch.
+- **Tabs**: *Geometry*, *Materials*, *Details*, *Labels*, *Mirror* and *Build*.
+- **Help**: every control has a tooltip, and **?** opens help for the current tab.
 
-1. Press **H**, type a width (for example `15`) and press **Generate**. With no centre selected yet, the circle is
-   centred on you.
-2. Press **J**, look at the ground and **left-click**. The circle moves there, one block above the face you clicked, the
-   same way block placement works. **Sneak** to use the targeted block itself. **Right-click** or **J** cancels.
+**Materials and presets**
+- **Block picker**: 3D item icons, search by name, id, namespace (`create:`) or tag (`#logs`), and categories (All,
+  Building, Full blocks, Slabs, Stairs, Walls, Pillars, Decorative, Functional, Modded).
+- Combine Blocks, Slabs and Stairs to show any block that is one of those types.
+- Types are decided by the block's class and shape, not its name, so modded blocks work.
+- **Presets** save and load complete setups.
 
-### The screen
+**Preview vs build**
+- **Preview** only shows or hides the hologram.
+- **Build…** opens the separate build screen, where nothing happens until you confirm.
 
-**Circle Settings**
-- **W / H**: width and height in blocks. In *Circle* mode the height follows the width.
-- **Circle / Oval** and **Outline / Filled** toggles.
-- **Centre**: Auto, 1×1 or 2×2. The button shows the resulting centre, and any size adjustment appears in yellow.
-- **Extends**: for even or mixed sizes, which neighbour of the selected block makes up the rest of the centre (for
-  example *East South*).
-- A live summary of the size, centre, block count and section count.
-- **Hologram colour**: preset swatches or any hex colour.
-- **Generate** and **Clear**.
+Settings are saved to `config/howtobuild.json`. An existing `config/how-to-circle.json` is migrated on first start
+and left in place. The hologram's centre belongs to the current world and is cleared when you leave it.
 
-**Dimension Settings**
-- Toggles for dimension labels, pop-up holograms and *face player*.
-- **Labels**: `5 by 1` (longest side first) or `1 by 5` (width, then height).
-- Sliders for text size, label offset (pop-up height), label opacity and hologram opacity.
+## Installing
 
-When pop-ups are on, each dimension line shows just its measurement (`5`) and the pop-up above shows `5 by 1`. When
-pop-ups are off, the dimension lines show the full `5 by 1`. Labels appear within 64 blocks and pop-ups within 40 blocks
-(configurable in the JSON file).
+1. Install [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer for Minecraft 26.2.
+2. Put [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0+26.2 or newer and `how-to-build-<version>.jar` in
+   your `mods` folder. Remove the old `how-to-circle` jar; How to Build replaces it.
+3. Java 25 is required, the same as Minecraft 26.2.
 
-**Position Settings**
-- The current centre coordinates, **Select centre** and **Use my position**.
-- **Lock to block centre**:
-  - ON: the centre is the block you stand in.
-  - OFF: even-sized centres snap to the block corner nearest your exact position.
-- **▲ Up / ▼ Down** moves the hologram vertically. Click the offset value to reset it.
-- **Rotate** turns the hologram 90°. **Floor / Wall** switches between horizontal and vertical orientation.
-- **Reset position**.
-- **Grid** shows the lines between individual blocks.
-- **X-ray** draws the hologram and labels through terrain.
+The mod is client-only and works on any server. Command building is only offered where the server already allows
+those commands.
 
-Settings are saved to `config/how-to-circle.json`. The hologram itself only lasts for the current world session.
-
-## Geometry
-
-A block is part of the filled shape when **its centre lies inside the ellipse** whose extents are exactly
-`width × height` blocks. All coordinates are doubled so the test runs in exact integer arithmetic:
+## How it works
 
 ```
-X = 2u + 1 − width,  Z = 2v + 1 − height
-inside ⇔ X²·height² + Z²·width² ≤ width²·height²
+GUI ─► config ─► BuildTool.generate (background thread, pure) ─► GeometryPipeline
+       (smoothing, rotation, patterns, variation, stair shapes) ─► GeometryResult (exact placements)
+   ─► MirrorTransform ─► MaterialResolver (BlockStates) ─┬─► RenderMesh  ─► HologramRenderer
+                                                         ├─► LabelSet    ─► DimensionLabelRenderer
+                                                         ├─► ProgressTracker (normal building)
+                                                         └─► CommandPlanner ─► CommandExecutor / export
 ```
 
-Because there is no floating point, the result is deterministic, perfectly symmetric and free of rounding gaps. The
-central row(s) and column(s) always span the full requested size, so a 21×13 oval really is 21 by 13. This only makes a
-difference for very thin even-sized ovals such as 20×2, which would otherwise lose their tips. The **outline** is every
-filled block with at least one empty edge-neighbour: the classic one-block-thick Minecraft circle, whose blocks touch
-along an edge or at a diagonal step.
+**Geometry**
+- Tools only describe their parameters and write placements: (x, y, z, role, shape). Shared stages do everything
+  else.
+- All curves use exact integer tests on doubled coordinates.
+- Hollow shapes are built by erosion, so walls have exactly the requested thickness and are watertight.
+- Mirroring uses `x' = P − 1 − x` with the plane `P` in doubled coordinates, so every copy is exact.
 
-Examples (rows of the filled shape):
+**Caching and threading**
+- Generation runs off the render thread.
+- Each later stage is cached by its inputs, so nothing is regenerated per frame.
+- Changing a label setting rebuilds only the labels.
 
-| Size | Rows |
-|---|---|
-| 5×5 | 3, 5, 5, 5, 3 |
-| 7×7 | 3, 5, 7, 7, 7, 5, 3 |
-| 10×10 | 4, 8, 8, 10, 10, 10, 10, 8, 8, 4 |
-| 21×13 | 9, 13, 17, 19, 19, 21, 21, 21, 19, 19, 17, 13, 9 |
+**Rendering**
+- Uses Fabric's `LevelRenderEvents.COLLECT_SUBMITS` with vanilla render pipelines; there are no raw OpenGL calls.
+- Hidden faces are culled and coplanar faces merged.
+- Edges are only drawn near the camera.
+- Shapes are limited to 1,000,000 blocks, with an estimate checked before allocating.
 
-**Connected sections** are found by splitting rows into straight runs and merging runs in consecutive rows that have
-exactly the same extent. The same is done column-wise, and the result with fewer sections wins; on a tie, the lines
-follow the shape's longer axis. Each section is a solid rectangle of real shape blocks, and every block belongs to
-exactly one section. A 100×100 circle (7,860 blocks) becomes 59 sections when filled and 116 as an outline.
-
-## Performance
-
-- Nothing is recomputed per frame:
-  - the shape and its sections are cached until the size or fill changes;
-  - world-space boxes and label text are cached until the centre or placement changes.
-- Each section is one box, not one box per block. The grid lines are only generated within 40 blocks of the camera,
-  so the geometry stays bounded even for huge shapes.
-- Labels are culled by distance and laid out with an allocation-free spatial hash.
-- There are no entities and no block changes.
-
-The client game test measures the render callback's CPU time for 100×100 circles and fails if it goes over 25 ms per
-frame. On the GitHub Actions runner, which uses software OpenGL, the measurements were:
-- filled (59 sections): about 0.37 ms per frame;
-- outline (116 sections): about 0.25 ms per frame.
-
-## Building
+## Building from source
 
 Requires JDK 25. The Gradle wrapper downloads Gradle 9.7.1.
 
 ```sh
-./gradlew build              # compiles the mod and runs the unit tests; the jar is in build/libs/
-./gradlew runClient          # starts a development client with the mod
-./gradlew runClientGameTest  # starts a real client and runs the end-to-end test (src/gametest)
+./gradlew build              # compiles and runs the unit tests; the jar is in build/libs/
+./gradlew runClient          # development client
+./gradlew runClientGameTest  # real client running the end-to-end acceptance test
 ```
 
-The project was generated from the official Fabric template for 26.2, the `26.2` branch of
-[FabricMC/fabric-example-mod](https://github.com/FabricMC/fabric-example-mod), which is what
-https://fabricmc.net/develop/template/ produces. It uses Loom 1.18, Fabric Loader 0.19.5 and Fabric API 0.161.0+26.2.
+The project comes from the official Fabric template for 26.2 (Loom 1.18, Fabric Loader 0.19.5, Fabric API 0.161.0+26.2)
+and uses Mojang's official names. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the architecture.
 
 ### Project layout
 
 ```
-src/main/java/com/howtocircle/
-  geometry/     CircleGenerator, CircleShape, OvalShape, ResolvedDimensions, ShapePlacement, …  (no Minecraft code)
-  dimensions/   SectionDetector, ConnectedSection, DimensionLabel, LabelLayout                  (no Minecraft code)
-src/client/java/com/howtocircle/
-  client/       HowToCircleClient (entrypoint), HologramManager (state + caches)
-  config/       HowToCircleConfig (JSON)
-  input/        KeyBindings, CentreSelectionHandler
-  render/       HologramRenderer, DimensionLabelRenderer, HologramGeometry, HologramRenderTypes, SelectionHud
-  gui/          CircleSettingsScreen
-src/test/java/        JUnit tests for geometry, sections and label layout
-src/gametest/java/    Fabric client game test (real client, screenshots)
+src/main/java/com/howtobuild/        pure Java, no Minecraft classes (unit-tested)
+  geometry/    GeometryResult, Placement, BlockShape, Mask2D, Grid3D, Solids, BoxDecomposer, StairShapes, …
+  tools/       BuildTool, ToolParameter, GeometryPipeline, ToolRegistry, capability/, impl/ (all tools)
+  details/     DetailFeature, presets, patterns, variation, SmoothingPass
+  transform/   MirrorTransform, MirrorSettings
+  dimensions/  SectionDetector, DimensionFormatter, LabelLayout
+  commands/    CommandPlanner, CommandPlan
+src/client/java/com/howtobuild/
+  client/      HowToBuildClient (entrypoint), BuildSession, ProgressTracker
+  config/      HowToBuildConfig, LegacyMigration, PresetStore, …
+  materials/   BlockCatalog, MaterialResolver, MaterialFamilies
+  render/      RenderMesh, HologramRenderer, LabelSet, DimensionLabelRenderer, SelectionHud
+  building/    CommandPermission, CommandExecutor, BuildAnalysis, CommandExport
+  gui/         HowToBuildScreen, BlockPickerScreen, CommandBuildScreen, PresetScreen
+  input/       KeyBindings, CentreSelectionHandler
+src/test/java/       JUnit tests
+src/gametest/java/   Fabric client game test
 ```
 
 ### Tests
 
-- **Unit tests** (`./gradlew test`):
-  - exact row profiles for 1×1, 2×2, 3×3, 5×5, 7×7, 10×10, 15×15, 20×12 and 21×13;
-  - symmetry, exact bounding box, convexity, outline correctness and gap-free (8-connected) outlines for 21 sizes
-    up to 128×17;
-  - that sections exactly partition the shape, never group diagonal blocks, and stay readable for 100×100;
-  - label layout and centre and placement maths.
-- **Client game test** (`./gradlew runClientGameTest`, also run in CI under Xvfb):
-  - opens the GUI with the key binding and clicks *Use my position* and *Generate*;
-  - renders 15×15 (outline and filled), 16×16 (2×2 centre), 21×13, 20×12 and 21×12 (mixed parity);
-  - checks that a forced centre adjusts the size visibly;
-  - toggles labels and pop-ups, and tests the wall plane and rotation;
-  - renders 100×100 filled and outline circles, checking caching and render cost;
-  - clears and regenerates the hologram;
-  - uses the centre selection key with a real left-click and right-click;
-  - opens and closes the GUI repeatedly;
-  - finally checks that no real block in the area changed.
+**Unit tests** (`./gradlew test`) cover:
+- every generator at many sizes, odd and even;
+- exact bounds, symmetry, thickness and hollowness;
+- stair facing and shapes, and every Blocks / Slabs / Stairs combination for the staircase;
+- corridor profiles and repeating arches;
+- mirror exactness for every axis, centre width and offset;
+- label formats and templates;
+- the command planner: exact coverage, no empty space, state preservation, splitting and undo.
 
-  Screenshots are saved to `build/run/clientGameTest/screenshots` and uploaded as a CI artifact.
+**Client game test** (`./gradlew runClientGameTest`, run in CI under Xvfb) uses a real client:
+- the GUI and every tab;
+- circles and ovals;
+- a hollow cylinder with trim;
+- a spiral of blocks, slabs and stairs;
+- a hollow detailed sphere;
+- a dome with ribs and crown;
+- the 6 × 10 × 20 arch corridor;
+- an exact mirror with offset;
+- block picker filters against the real block registry;
+- the label `6` updating to `6 × 1` immediately;
+- render cost of large shapes;
+- centre selection with real clicks;
+- that previewing changed no blocks;
+- finally, a command build as an operator, checking every block state on the server, followed by undo.
 
-GitHub Actions (`.github/workflows/build.yml`) runs `./gradlew build` and the client game test on every push.
+Screenshots are saved to `build/run/clientGameTest/screenshots`.
 
 ## License
 
