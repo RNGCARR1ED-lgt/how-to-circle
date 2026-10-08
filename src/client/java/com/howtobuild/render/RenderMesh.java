@@ -259,6 +259,10 @@ public final class RenderMesh {
 			case INNER -> 0x5C8CFF;
 			case RAIL -> 0xFF5C8A;
 			case FLOOR -> 0x9BD45A;
+			case SECONDARY -> 0x7FB2A0;
+			case HIGHLIGHT -> 0xFFF07A;
+			case OUTER_EDGE -> 0xE07A4D;
+			case INNER_EDGE -> 0x6FC6FF;
 		};
 	}
 

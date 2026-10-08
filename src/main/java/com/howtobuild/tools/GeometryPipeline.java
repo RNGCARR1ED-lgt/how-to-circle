@@ -8,11 +8,17 @@ import com.howtobuild.details.DetailSettings;
 import com.howtobuild.details.MaterialPattern;
 import com.howtobuild.details.MaterialVariation;
 import com.howtobuild.details.SmoothingPass;
+import com.howtobuild.geometry.Annotation;
 import com.howtobuild.geometry.GeometryBuilder;
 import com.howtobuild.geometry.GeometryResult;
+import com.howtobuild.geometry.GeometryValidator;
+import com.howtobuild.geometry.MaterialRef;
 import com.howtobuild.geometry.MaterialRole;
 import com.howtobuild.geometry.Placement;
 import com.howtobuild.geometry.StairShapes;
+import com.howtobuild.geometry.StateTransform;
+import com.howtobuild.geometry.Voxels;
+import com.howtobuild.palette.Randomiser;
 import com.howtobuild.tools.capability.Detailable;
 import com.howtobuild.tools.capability.Rotatable;
 
@@ -71,17 +77,20 @@ public final class GeometryPipeline {
 			rotate(builder, context.rotation());
 		}
 
-		if (tool.verticalAnchor(settings) == VerticalAnchor.BASE) {
-			long below = builder.snapshot().stream().filter(p -> p.y() < 0).count();
-
-			// Never expected: base-anchored generators start at layer 0. Reported (not hidden) so it is caught by tests.
-			if (below > 0) builder.warn("⚠ Internal error: " + below + " blocks below the base layer. Please report this.");
-		}
-
 		applyPattern(builder, details);
 		applyVariation(builder, details.variation(), details.seed());
+		int normal = tool.planeNormalAxis(settings, context);
+		// Randomisation only chooses materials; positions and shapes are never changed.
+		Randomiser.apply(builder, tool.randomisation(settings, context), normal);
 		StairShapes.resolve(builder);
-		return GeometryResult.of(tool.id(), builder, tool.planeNormalAxis(settings, context));
+		GeometryResult result = GeometryResult.of(tool.id(), builder, normal);
+		List<String> issues = GeometryValidator.validate(result, tool.verticalAnchor(settings) == VerticalAnchor.BASE);
+
+		if (issues.isEmpty()) return result;
+
+		// Never expected: reported (not hidden) so tests and the GUI catch generator bugs, and building is blocked.
+		issues.forEach(builder::warn);
+		return GeometryResult.of(tool.id(), builder, normal);
 	}
 
 	/**
@@ -98,11 +107,45 @@ public final class GeometryPipeline {
 
 			for (Placement p : all) {
 				int[] r = rotateAbout(p.x(), p.z(), centre[0], centre[1]);
-				builder.put(new Placement(r[0], p.y(), r[1], p.role(), p.shape().rotated(1), p.variant(), p.mirrored()));
+				builder.put(new Placement(r[0], p.y(), r[1], p.role(), p.shape().rotated(1), p.variant(), p.mirrored(), p.material()));
 			}
 
 			rotateCells(builder.centreCells(), centre);
 			rotateCells(builder.guides(), centre);
+			rotateGroups(builder, centre);
+
+			// Exact saved states carry their own orientation: turn them with the geometry.
+			List<MaterialRef> refs = new ArrayList<>(builder.materials());
+
+			for (int i = 0; i < refs.size(); i++) {
+				MaterialRef ref = refs.get(i);
+
+				if (ref.exact()) refs.set(i, MaterialRef.exactState(StateTransform.rotateY(ref.value(), 1)));
+			}
+
+			builder.replaceMaterials(refs);
+			List<Annotation> notes = new ArrayList<>(builder.annotations());
+			builder.annotations().clear();
+
+			for (Annotation a : notes) {
+				int[] r = rotateAbout(a.x(), a.z(), centre[0], centre[1]);
+				builder.annotate(r[0], a.y(), r[1], a.text());
+			}
+		}
+	}
+
+	private static void rotateGroups(GeometryBuilder builder, int[] centre) {
+		if (builder.groups().isEmpty()) return;
+
+		it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap copy = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap(builder.groups());
+		builder.groups().clear();
+
+		for (var e : copy.long2IntEntrySet()) {
+			int x = Voxels.x(e.getLongKey());
+			int y = Voxels.y(e.getLongKey());
+			int z = Voxels.z(e.getLongKey());
+			int[] r = rotateAbout(x, z, centre[0], centre[1]);
+			builder.group(r[0], y, r[1], e.getIntValue());
 		}
 	}
 
@@ -112,7 +155,10 @@ public final class GeometryPipeline {
 
 		for (int[] c : copy) {
 			int[] r = rotateAbout(c[0], c[2], centre[0], centre[1]);
-			cells.add(new int[] {r[0], c[1], r[1]});
+			int[] moved = c.clone();
+			moved[0] = r[0];
+			moved[2] = r[1];
+			cells.add(moved);
 		}
 	}
 

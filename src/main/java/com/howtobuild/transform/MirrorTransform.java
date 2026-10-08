@@ -9,6 +9,8 @@ import com.howtobuild.geometry.BlockShape;
 import com.howtobuild.geometry.GeometryBuilder;
 import com.howtobuild.geometry.StairShapes;
 import com.howtobuild.geometry.GeometryResult;
+import com.howtobuild.geometry.MaterialRef;
+import com.howtobuild.geometry.StateTransform;
 import com.howtobuild.geometry.Placement;
 
 /**
@@ -73,21 +75,42 @@ public final class MirrorTransform {
 		if (axis.mirrorsZ()) copies.add(new boolean[] {false, true});
 		if (axis.mirrorsX() && axis.mirrorsZ()) copies.add(new boolean[] {true, true});
 
+		// Exact saved states are mirrored too; block references and roles need no change.
+		GeometryBuilder builder = new GeometryBuilder();
+		builder.replaceMaterials(source.materials());
+		it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap groups = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap(source.groups());
+
 		for (boolean[] copy : copies) {
 			for (Placement p : source.placements()) {
 				Placement m = mirror(p, copy[0], copy[1], planeX, planeZ);
+				MaterialRef ref = source.material(p);
 
-				if (occupied.add(m.key())) out.add(m);
+				if (ref != null && ref.exact()) {
+					String state = ref.value();
+
+					if (copy[0]) state = StateTransform.mirror(state, true);
+					if (copy[1]) state = StateTransform.mirror(state, false);
+
+					m = m.withMaterial(builder.material(MaterialRef.exactState(state)));
+				}
+
+				if (occupied.add(m.key())) {
+					out.add(m);
+
+					if (groups.containsKey(p.key())) groups.put(m.key(), groups.get(p.key()));
+				}
 			}
 		}
 
 		// Where copies meet, stair corners are re-derived from their new neighbours, exactly as Minecraft would.
-		GeometryBuilder builder = new GeometryBuilder();
 		out.forEach(builder::put);
 		StairShapes.resolve(builder);
 		List<int[]> centres = new ArrayList<>(source.centreCells());
 		return new GeometryResult(source.toolId(), builder.snapshot(), centres, source.values(), source.warnings(), source.planeNormalAxis())
-				.withGuides(source.guides());
+				.withGuides(source.guides())
+				.withMaterials(builder.materials())
+				.withGroups(groups)
+				.withAnnotations(source.annotations());
 	}
 
 	/** Mirrors one placement across the X and/or Z plane, including its block state. */

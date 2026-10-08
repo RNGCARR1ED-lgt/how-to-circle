@@ -451,3 +451,349 @@ MirrorTransform → resolved BlockStates ──► hologram · labels · progres
   - follow-circle in a real world;
   - 2 × 2 centre rendering;
   - a command-built spiral on solid ground leaves the ground untouched and matches the preview block for block.
+
+---
+
+# Part 3: Randomisation, terrain, saved builds, inset spirals and the material system
+
+## 23. Existing architecture (what this builds on)
+
+**Generation pipeline**
+
+```
+BuildTool.generate ─► GeometryBuilder ─► GeometryPipeline (smooth, rotate about the true centre, pattern, variation,
+stair shapes) ─► GeometryResult (exact placements: x, y, z, role, BlockShape, variant, mirrored)
+```
+
+**Client side**
+
+```
+BuildSession: GeometryResult ─► MirrorTransform ─► MaterialResolver (role + shape → BlockState) ─► Resolved
+              (states[], WorldTransform) ─► RenderMesh / LabelSet / ProgressTracker / CommandPlanner / BuildAnalysis
+```
+
+**Shared infrastructure**
+- `GeometryCenter`, `CircularFootprint` and `WorldTransform` define centres, footprints and world placement.
+- The GUI is driven by `ToolParameter`s; tools are registered in `ToolRegistry`.
+- The block picker (`BlockCatalog`) classifies blocks by class and shape.
+
+## 24. Limitations this pass removes
+
+| Limitation | Consequence |
+|---|---|
+| A placement can only say *role*; the block comes from one material slot per role | No per-block palettes: no randomisation, terrain layers or exact saved states |
+| No representation for an exact `BlockState` inside the pure pipeline | A saved build could not flow through the same pipeline, rotation and mirror |
+| `ToolParameter` has only int / bool / enum | No file names (saved builds) |
+| Tools cannot see the world | Terrain cannot blend into existing ground |
+| Material counts exist only as a block total | No material list, block-state breakdown or resource check |
+| The Build tab is a settings page | It is not a build dashboard |
+
+## 25. Reusable systems and refactors
+
+**`Placement.material`** (new, −1 = none): an index into `GeometryResult.materials()`, a list of `MaterialRef`.
+
+**`MaterialRef`**
+- A *block id* is shaped by the placement's `BlockShape` (used by randomisation palettes and terrain layers).
+- An *exact state string* is used by saved builds.
+- Roles still provide the default material, so every existing tool is unchanged.
+
+**`StateTransform`** (pure)
+- Rotates and mirrors exact state strings by rewriting the properties that carry orientation: `facing`, `axis`,
+  `rotation`, stair `shape`, `hinge`, side connections, chest `type`.
+- This lets exact saved states go through the same pipeline rotation and `MirrorTransform` as generated shapes.
+
+**`GenerationContext`**
+- Gains a `Palettes` component: the randomisation settings, the terrain layers, and a `HeightSampler` snapshot of
+  existing ground.
+- The snapshot is taken on the client thread before generation, so workers never touch the world.
+
+**Other refactors**
+- **`ToolParameter.text`:** a new string parameter, used for the saved-build file name.
+- **`GeometryResult`:** gains `groups` (per-position group ids, e.g. spiral step or revolution), `annotations`
+  (positioned label texts, e.g. `Y=90`) and typed `guides` (master outline, protected area, boundary, contour).
+
+## 26. Randomisation system
+
+**Palette**
+- `WeightedPalette`: entries with block id, weight, enabled flag and order.
+- Normalisation is optional; when it is off, the GUI shows the total and a warning.
+
+**Assignment is exact and rank-based**
+1. Each candidate placement gets a scalar from the chosen **pattern**: completely random, subtle variation,
+   natural, clustered, patchy, gradient, edge weighted, centre weighted, striped, radial, noise, or custom noise
+   (scale, strength, octaves, contrast, threshold).
+2. Candidates are sorted by that value (ties broken by a hash).
+3. They are cut into consecutive runs whose sizes are the weights' largest-remainder shares.
+
+The result has *exactly* the requested proportions, keeps the pattern's spatial structure, and is reproducible
+from the seed.
+
+**Modes**
+- *Weighted* uses the percentages.
+- *Fully Random* gives every entry equal weight.
+- *Deterministic* is weighted with the seed locked.
+
+**Seed**
+- The seed is always explicit, so preview, build and save always agree.
+- *Randomise again* draws a new seed unless the seed is locked.
+
+**Scope**
+- **Layers:** a set of material roles is randomised; the others keep their fixed material.
+- **Edges:** protect outer edge plus edge variation (0–100 %).
+- **Spirals:** symmetry per block, per step or per revolution (uses `groups`).
+- **Mirror:** the mirrored copy either copies the original's randomisation (*Mirrored*) or is randomised
+  independently (*Independent*).
+
+**Geometry is never changed**
+- Only `Placement.material` changes, which tests verify.
+
+**Tools**
+- The **Randomisation** tool generates a floor, wall or volume region (rectangle, square, circle, oval) filled
+  with the palette.
+- Every other tool can enable randomisation globally.
+
+## 27. Terrain / terraforming system
+
+**Pipeline**
+
+```
+Region mask (circle / oval / square / rectangle, exact CircularFootprint / rectangle cells)
+ ─► Protected mask (shape + size + offset)
+ ─► Height field
+ ─► Smoothing
+ ─► Boundary blending
+ ─► Material layers (+ randomised layer palettes)
+ ─► Placements
+```
+
+**Height field** (deterministic fBm Perlin noise, pure Java)
+- **Template:** flat, rolling hills, hill, smooth/rocky/jagged/layered/volcanic/alpine mountain, valley, ridge,
+  plateau, crater, basin, island, cliff, mountain range, foothills, twin hills, long ridge.
+- **Plus a variation layer:** rolling, noise or ridged.
+- **Plus a detail layer:** procedural parameters scale, amplitude, octaves, persistence, lacunarity, ridge,
+  erosion, slope and valley strength.
+- *Custom* is procedural only.
+
+**Quality**
+- The quality setting picks the smoothing passes and octaves.
+- A slope limiter removes one-block spikes and impossible cliffs, unless *Cliff* is chosen.
+- Erosion-like shaping makes the field's channels deeper and its ridges sharper.
+
+**Protected area**
+- Columns inside the protected mask are never generated.
+- Heights within the blend radius of it interpolate (Sharp / Smooth / Natural / Very Smooth) towards the sampled
+  existing ground at the boundary, or towards the base where nothing is sampled.
+
+**Outer boundary**
+- *Natural* (default) fades to the existing ground; *Cliff* does not.
+
+**Materials and output**
+- Layers are a list of (`WeightedPalette`, thickness); the last layer fills to the base.
+- *Fill depth* can limit the column to the top N blocks.
+
+**Validation**
+- `GeometryValidator` asserts that no position is inside the protected set or outside the region.
+
+**Preview**
+- The terrain shows contour guides every N blocks, `Y=…` annotations, the protected-area and boundary guides,
+  and a summary: area, min/max Y, block counts, protected blocks.
+
+**Performance**
+- Generation runs off-thread from the snapshot and stays under the 1M-block limit.
+
+## 28. Saved builds (`.hwb`)
+
+**Format**
+- A small binary header (`HWB`, version) followed by gzip'd data:
+  - name, author, description, tool, timestamps;
+  - dimensions, origin mode, centre cells, offsets, seed and generator settings (JSON);
+  - a **palette of exact state strings**;
+  - per-block (x, y, z relative to the origin, palette index).
+- Pure codec with validation: version, dimensions, palette indices, state syntax.
+
+**Saving**
+- The default is the **final result**: geometry, details, randomisation, mirror, overrides; exact states as
+  resolved by the client.
+- Options:
+  - geometry without mirror;
+  - a world capture inside the preview bounds;
+  - *Procedural Preset* (stores tool settings and seed instead of blocks).
+- Writes are atomic: a temp file, then a move. A failed save never destroys an existing build.
+- Saving runs off-thread with a status line.
+
+**Loading**
+- The **Saved Build** tool reads the file (off-thread) into a `GeometryResult` whose materials are the exact
+  states.
+- The usual pipeline then applies Y rotation, X/Z flips, mirror, offsets and material overrides.
+- **Saved = placed:** nothing is regenerated from settings.
+
+**Validation on load**
+- Missing blocks (other mods) are listed and can be replaced; the load never crashes.
+
+**Compare with world**
+- Matched / missing / incorrect, plus *extra*: unexpected blocks inside the build's box.
+- Shown as hologram states and counts.
+
+## 29. Spiral inset (Fit Inside Circle)
+
+**Circle mode:** `circle_mode` = Off / Follow circle dimensions / **Fit inside circle**. Saved `follow_circle`
+settings are migrated.
+
+**Fit inside**
+- The master footprint is the wall boundary.
+- The steps use `master.inset(wall + clearance)`: exact erosion of discrete cells, never a float radius.
+- *Automatic inset* = wall thickness + clearance, plus one block when an outer curb or rail is enabled.
+- The *Wall* detail fills the wall zone (`master − master.inset(wall)`), and nothing else enters it.
+- Stair width grows inwards (the inner radius adapts).
+
+**Edges**
+- Outer edge: simple, straight (rail), rounded (slabs), trimmed, stepped (curb), detailed; with thickness and
+  material role.
+- Inner edge: open, central column, inner rail, inner wall, trim, decorative ring.
+
+**Roles**
+- New roles: secondary, highlight, outer edge, inner edge.
+- Every role is a real block in Build → Materials.
+- *Material themes* (stone, deepslate, sandstone, oak, quartz, …) set all roles at once.
+
+## 30. Material accounting and the Build tab
+
+**`MaterialCounter`** (pure, over the final state strings) groups by:
+- block: icon, name, count, %;
+- exact state: facing / half / shape breakdown;
+- category: blocks, slabs, stairs, structural, details, accent.
+
+Counts come from the final resolved build, so they include mirror (unique positions only), randomisation and
+overrides.
+
+**Build dashboard**
+- Summary: tool, dimensions, centre, blocks, materials, details, randomisation, mirror, inset.
+- Material list with item icons and filters.
+- Click a material to **replace** it. Overrides are applied in the resolver and keep facing, half, shape,
+  type and waterlogged when the target block has them.
+- *Show block list* with exact states.
+- Resource check against the player's inventory: a warning for normal building only.
+- Command estimate; save / load buttons.
+
+**`GeometryValidator`** checks duplicates, the region, the protected set, below-base positions and missing states.
+Building is blocked while it reports errors.
+
+## 31. Rendering changes
+
+**Guides**
+- Typed guides drawn in distinct styles: master outline, protected area (red), region boundary, contours.
+
+**Annotations**
+- Annotations (`Y=…`) become labels.
+
+**Compare states**
+- Compare states reuse the mesh colours: matched green, incorrect red, missing default, extra orange boxes.
+
+**Everything else**
+- Still batched custom geometry through `LevelRenderEvents`, with no entities and no raw OpenGL.
+
+## 32. GUI changes
+
+**Layout**
+- Three columns: tools | settings (one or two columns) | **preview pane**.
+- The preview pane is a live top-down mini-map of the final build coloured by material, with dimensions, centre and
+  counts.
+- It fits 1280×720 through 3840×2160 at any GUI scale, and collapses when narrow.
+
+**New tools**
+- Randomisation, Terrain, Saved Build.
+
+**New tabs**
+- **Randomise:** palette editor with icons, %, enable, remove and reorder; total; normalise; mode, pattern and
+  seed buttons; cluster and noise; edges; layers; symmetry.
+- **Terrain layers:** a layer list.
+- **Builds:** save, load, import, export, delete, compare.
+
+**Build tab**
+- Becomes the dashboard (section 30).
+
+## 33. Configuration changes
+
+**New fields**
+- `random` (settings + palette), `terrainLayers`, `materialOverrides`, `buildFilter`, `showBlockList`.
+
+**Migrations**
+- `follow_circle` → `circle_mode`.
+- New roles default to sensible blocks.
+- Presets include all of it.
+
+## 34. Testing strategy
+
+**Pure unit tests**
+- **Randomisation:**
+  - exact proportions, including 100 %, 50/50, invalid totals and normalisation;
+  - determinism by seed, equal mode;
+  - clustered and noise patterns are spatially coherent (fewer material changes between neighbours than
+    white noise);
+  - geometry is unchanged;
+  - roles and edges are respected.
+- **Terrain:**
+  - every template plus procedural, at low and high roughness, on small and large regions;
+  - no position in the protected set or outside the region;
+  - edge blending is smooth (bounded neighbour height difference);
+  - existing-height sampling is honoured;
+  - slope limiting.
+- **Spiral inset:** 16 × 16 at inset 0/1/2 never enters the reserved ring; 32 × 32 keeps its 2×2 centre.
+- **Saved builds:**
+  - round trip for circle, spiral (stairs and slabs), randomised floor, corridor, terrain and mirrored build;
+  - rotation, flips and translation are exact (positions and states);
+  - invalid files are rejected cleanly.
+- **Material counts:** counts equal the final placements; mirrored overlaps are counted once.
+- **Commands:** they expand to exactly the final states for randomised, mirrored and saved builds.
+
+**Client game test**
+- Randomised floor counts.
+- Terrain with a protected area: the world inside it is unchanged after a command build.
+- Inset spiral.
+- Save → load → place round trip: the world matches the saved file block for block.
+- GUI at several window sizes.
+
+## 35. Performance strategy
+
+- All generation (noise, terrain, randomisation, file parsing) is pure and runs on the existing background
+  generator thread.
+- Caching:
+  - results are keyed by settings, palette and the height snapshot;
+  - the resolved build, mesh, labels and material counts are cached per result;
+  - nothing runs per frame.
+- Rank-based assignment is O(n log n) once per generation.
+- Terrain stores heights in an `int[]` and only creates placements for its output.
+- The 1M-block limit applies.
+- The block picker draws only visible rows (already virtualised).
+- Save and load run off-thread, with atomic writes.
+
+## 36. Minecraft 26.2 compatibility
+
+**Block states**
+- Uses only APIs already proven by CI: `BlockStateParser`, `BuiltInRegistries.BLOCK`, property copying through
+  `StateDefinition` / `Property`, inventory via `Inventory.getItem` / `getContainerSize`.
+
+**Height snapshot**
+- Uses `Level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z)` on the client thread.
+
+**Not used**
+- No new networking, entities or OpenGL.
+
+## 37. Implementation order
+
+1. Pure core: `Placement.material`, `MaterialRef`, `StateTransform`, palettes, noise, randomiser, validator,
+   material counter, `.hwb` codec, text parameters, context palettes, guides and annotations. Unit tests.
+2. Tools: Randomisation, Terrain (templates, procedural, protected, blending), spiral circle modes, edges, roles,
+   Saved Build. Unit tests.
+3. Client:
+   - session sources and overrides;
+   - height snapshot;
+   - resolver for material refs;
+   - accounting;
+   - Build dashboard;
+   - Randomise / Terrain / Builds tabs;
+   - preview pane;
+   - guides;
+   - save/load IO;
+   - compare.
+4. CI build plus the client game test, fixing until green; README.

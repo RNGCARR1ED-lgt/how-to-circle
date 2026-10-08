@@ -16,7 +16,9 @@ public final class ToolParameter {
 	public enum Type {
 		INT,
 		BOOL,
-		ENUM
+		ENUM,
+		/** Free text (e.g. a saved build's name). */
+		TEXT
 	}
 
 	private final String id;
@@ -44,6 +46,11 @@ public final class ToolParameter {
 
 	public static ToolParameter bool(String id, boolean defaultValue) {
 		return new ToolParameter(id, Type.BOOL, 0, 1, Boolean.toString(defaultValue), List.of());
+	}
+
+	/** A text value of at most 128 characters. */
+	public static ToolParameter text(String id, String defaultValue) {
+		return new ToolParameter(id, Type.TEXT, 0, 128, defaultValue, List.of());
 	}
 
 	public static <E extends Enum<E>> ToolParameter choice(String id, E defaultValue) {
@@ -131,6 +138,7 @@ public final class ToolParameter {
 			}
 			case BOOL -> raw.equalsIgnoreCase("true") || raw.equalsIgnoreCase("false") ? raw.toLowerCase(Locale.ROOT) : defaultValue;
 			case ENUM -> options.contains(raw) ? raw : defaultValue;
+			case TEXT -> raw.length() > max ? raw.substring(0, max) : raw;
 		};
 	}
 }

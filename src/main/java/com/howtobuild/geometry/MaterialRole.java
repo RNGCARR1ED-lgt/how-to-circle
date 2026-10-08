@@ -22,7 +22,15 @@ public enum MaterialRole {
 	/** Railings. */
 	RAIL,
 	/** Floors. */
-	FLOOR;
+	FLOOR,
+	/** Second main material (alternating steps, patterns). */
+	SECONDARY,
+	/** Highlights on detailed edges and decorative accents. */
+	HIGHLIGHT,
+	/** The outer edge of a staircase (trim, curb, rounded edge). */
+	OUTER_EDGE,
+	/** The inner edge of a staircase (inner trim, inner wall). */
+	INNER_EDGE;
 
 	public String key() {
 		return name().toLowerCase(java.util.Locale.ROOT);

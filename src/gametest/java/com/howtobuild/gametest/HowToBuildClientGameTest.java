@@ -378,7 +378,7 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		use(context, "circle", params("size", "33", "fill", "FILLED"), c -> {
 		});
 		java.util.Set<List<Integer>> circle = worldColumns(context);
-		GeometryResult spiral = use(context, "spiral", params("follow_circle", "true", "circle_width", "33", "stair_width", "4", "height", "12"), c -> {
+		GeometryResult spiral = use(context, "spiral", params("circle_mode", "FOLLOW", "circle_width", "33", "stair_width", "4", "height", "12"), c -> {
 			c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS, ShapeKind.SLABS, ShapeKind.STAIRS));
 			c.detailPreset = DetailPreset.ARCHITECTURAL;
 		});
@@ -394,7 +394,7 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 	private void testEvenCentreAndOffsets(ClientGameTestContext context) {
 		GeometryResult circle = use(context, "circle", params("size", "32", "fill", "OUTLINE"), c -> {
 		});
-		GeometryResult spiral = use(context, "spiral", params("follow_circle", "true", "circle_width", "32", "stair_width", "3"), c -> {
+		GeometryResult spiral = use(context, "spiral", params("circle_mode", "FOLLOW", "circle_width", "32", "stair_width", "3"), c -> {
 		});
 		check(circle.centreCells().size() == 4 && spiral.centreCells().size() == 4, "32 × 32 circle and spiral both have a 2×2 centre");
 
@@ -412,7 +412,7 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		});
 		java.util.Set<List<Integer>> circleMoved = worldColumns(context);
 		int circleMinY = context.computeOnClient(client -> BuildSession.get().resolved().worldPos(0).getY());
-		use(context, "spiral", params("follow_circle", "true", "circle_width", "33"), c -> {
+		use(context, "spiral", params("circle_mode", "FOLLOW", "circle_width", "33"), c -> {
 			c.offsetX = 7;
 			c.offsetY = -3;
 			c.offsetZ = 4;
@@ -585,7 +585,7 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 			HowToBuildConfig c = HowToBuildConfig.get();
 			reset(c);
 			c.tool = "spiral";
-			c.setSetting(c.activeTool(), "follow_circle", "true");
+			c.setSetting(c.activeTool(), "circle_mode", "FOLLOW");
 			c.setSetting(c.activeTool(), "circle_width", "9");
 			c.setSetting(c.activeTool(), "stair_width", "2");
 			c.setSetting(c.activeTool(), "height", "8");

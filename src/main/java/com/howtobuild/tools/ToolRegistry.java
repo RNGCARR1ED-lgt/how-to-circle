@@ -10,10 +10,13 @@ import com.howtobuild.tools.impl.CorridorTool;
 import com.howtobuild.tools.impl.CylinderTool;
 import com.howtobuild.tools.impl.DomeTool;
 import com.howtobuild.tools.impl.OvalTool;
+import com.howtobuild.tools.impl.RandomisationTool;
 import com.howtobuild.tools.impl.RectangleTool;
+import com.howtobuild.tools.impl.SavedBuildTool;
 import com.howtobuild.tools.impl.SphereTool;
 import com.howtobuild.tools.impl.SpiralStaircaseTool;
 import com.howtobuild.tools.impl.SquareTool;
+import com.howtobuild.tools.impl.TerrainTool;
 
 /**
  * All geometry tools, in GUI order. Adding a tool means writing one {@link BuildTool} class and adding one line here;
@@ -32,6 +35,9 @@ public final class ToolRegistry {
 		register(new CorridorTool());
 		register(new SquareTool());
 		register(new RectangleTool());
+		register(new RandomisationTool());
+		register(new TerrainTool());
+		register(new SavedBuildTool());
 	}
 
 	private ToolRegistry() {

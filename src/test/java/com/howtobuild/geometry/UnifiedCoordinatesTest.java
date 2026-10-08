@@ -69,7 +69,7 @@ class UnifiedCoordinatesTest {
 					DetailSettings details = DetailSettings.of(((Detailable) spiral).presetDetails(preset).toArray(new DetailFeature[0]));
 					GenerationContext ctx = GenerationContext.DEFAULT.withMaterialTypes(types).withDetails(details);
 					Set<Long> circle = circleColumns(GenerationContext.DEFAULT, width, length);
-					GeometryResult r = TestShapes.generate("spiral", ctx, "follow_circle", true, "master_shape", width == length ? "CIRCLE" : "OVAL",
+					GeometryResult r = TestShapes.generate("spiral", ctx, "circle_mode", "FOLLOW", "master_shape", width == length ? "CIRCLE" : "OVAL",
 							"circle_width", width, "circle_length", length, "stair_width", stairWidth, "height", 12, "revolutions", 1);
 					assertFalse(r.isEmpty(), r.warnings().toString());
 
@@ -87,7 +87,7 @@ class UnifiedCoordinatesTest {
 	@Test
 	void spiralOuterBoundaryMatchesTheCircleExactly() {
 		GeometryResult circle = TestShapes.generate("circle", "size", 33, "fill", "FILLED");
-		GeometryResult spiral = TestShapes.generate("spiral", "follow_circle", true, "circle_width", 33, "stair_width", 3);
+		GeometryResult spiral = TestShapes.generate("spiral", "circle_mode", "FOLLOW", "circle_width", 33, "stair_width", 3);
 		assertEquals(circle.bounds().minX(), spiral.bounds().minX());
 		assertEquals(circle.bounds().maxX(), spiral.bounds().maxX());
 		assertEquals(circle.bounds().minZ(), spiral.bounds().minZ());
@@ -101,7 +101,7 @@ class UnifiedCoordinatesTest {
 		int previous = 0;
 
 		for (int width = 1; width <= 5; width++) {
-			GeometryResult r = TestShapes.generate("spiral", "follow_circle", true, "circle_width", 33, "stair_width", width);
+			GeometryResult r = TestShapes.generate("spiral", "circle_mode", "FOLLOW", "circle_width", 33, "stair_width", width);
 			assertEquals(33, r.width(), "outer boundary fixed for width " + width);
 			int columns = (int) r.placements().stream().map(p -> Voxels.pack(p.x(), 0, p.z())).distinct().count();
 			assertTrue(columns > previous, "wider stairs cover more of the disc");
@@ -111,7 +111,7 @@ class UnifiedCoordinatesTest {
 
 	@Test
 	void innerRadiusCutsTheHoleAroundTheSameCentre() {
-		GeometryResult r = TestShapes.generate("spiral", "follow_circle", true, "circle_width", 33, "inner_radius", 6);
+		GeometryResult r = TestShapes.generate("spiral", "circle_mode", "FOLLOW", "circle_width", 33, "inner_radius", 6);
 		assertEquals(33, r.width());
 
 		for (Placement p : r.placements()) {
@@ -126,14 +126,14 @@ class UnifiedCoordinatesTest {
 	@ValueSource(ints = {32, 33, 16, 15})
 	void circleAndSpiralShareTheSameCentreCells(int size) {
 		GeometryResult circle = TestShapes.generate("circle", "size", size);
-		GeometryResult spiral = TestShapes.generate("spiral", "follow_circle", true, "circle_width", size);
+		GeometryResult spiral = TestShapes.generate("spiral", "circle_mode", "FOLLOW", "circle_width", size);
 		assertEquals(columns(circle.centreCells()), columns(spiral.centreCells()));
 		assertEquals(size % 2 == 0 ? 4 : 1, spiral.centreCells().size());
 
 		for (boolean alignX : new boolean[] {true, false}) {
 			GenerationContext ctx = GenerationContext.DEFAULT.withAlignment(alignX, true, !alignX);
 			assertEquals(columns(TestShapes.generate("circle", ctx, "size", size).centreCells()),
-					columns(TestShapes.generate("spiral", ctx, "follow_circle", true, "circle_width", size).centreCells()));
+					columns(TestShapes.generate("spiral", ctx, "circle_mode", "FOLLOW", "circle_width", size).centreCells()));
 		}
 	}
 
@@ -156,7 +156,7 @@ class UnifiedCoordinatesTest {
 	void spiralKeepsEveryOddAndEvenSizeExactly(int size) {
 		for (boolean follow : new boolean[] {false, true}) {
 			GeometryResult r = follow
-					? TestShapes.generate("spiral", "follow_circle", true, "circle_width", size, "stair_width", 2, "height", 8, "revolutions", 1)
+					? TestShapes.generate("spiral", "circle_mode", "FOLLOW", "circle_width", size, "stair_width", 2, "height", 8, "revolutions", 1)
 					: TestShapes.generate("spiral", "diameter", size, "stair_width", 2, "height", 8, "revolutions", 1);
 			String mode = (follow ? "following a circle" : "own size") + " " + size;
 			assertFalse(r.isEmpty(), mode + ": " + r.warnings());
@@ -187,7 +187,7 @@ class UnifiedCoordinatesTest {
 
 	@Test
 	void incompatibleCentreModeIsReportedNotGenerated() {
-		GeometryResult r = TestShapes.generate("spiral", "follow_circle", true, "circle_width", 33, "centre_size", "TWO_BY_TWO");
+		GeometryResult r = TestShapes.generate("spiral", "circle_mode", "FOLLOW", "circle_width", 33, "centre_size", "TWO_BY_TWO");
 		assertTrue(r.isEmpty());
 		assertTrue(r.warnings().stream().anyMatch(w -> w.contains("2×2 centre needs even")), r.warnings().toString());
 	}
@@ -196,7 +196,7 @@ class UnifiedCoordinatesTest {
 	void offsetsMoveCircleAndSpiralIdentically() {
 		WorldTransform t = new WorldTransform(100, 77, 200, 7, -3, 4);
 		GeometryResult circle = TestShapes.generate("circle", "size", 33, "fill", "FILLED");
-		GeometryResult spiral = TestShapes.generate("spiral", "follow_circle", true, "circle_width", 33);
+		GeometryResult spiral = TestShapes.generate("spiral", "circle_mode", "FOLLOW", "circle_width", 33);
 		Set<Long> circleWorld = new HashSet<>();
 
 		for (Placement p : circle.placements()) {
@@ -218,7 +218,7 @@ class UnifiedCoordinatesTest {
 
 	@Test
 	void offsetYMinusOneMovesEverythingDownExactlyOneBlock() {
-		GeometryResult spiral = TestShapes.generate("spiral", "follow_circle", true, "circle_width", 33);
+		GeometryResult spiral = TestShapes.generate("spiral", "circle_mode", "FOLLOW", "circle_width", 33);
 		WorldTransform level = new WorldTransform(147, 77, -55, 0, 0, 0);
 		WorldTransform down = new WorldTransform(147, 77, -55, 0, -1, 0);
 
@@ -251,7 +251,7 @@ class UnifiedCoordinatesTest {
 						GeometryResult r = GeometryPipeline.generate(tool, settings, ctx);
 
 						if (!r.isEmpty() && r.bounds().minY() < 0) failures.add(tool.id() + " " + preset + " " + types + " " + settings + " minY " + r.bounds().minY());
-						if (r.warnings().stream().anyMatch(w -> w.contains("Internal error"))) failures.add(tool.id() + " warns: " + r.warnings());
+						if (r.warnings().stream().anyMatch(GeometryValidator::isBlocking)) failures.add(tool.id() + " warns: " + r.warnings());
 					}
 				}
 			}
@@ -270,7 +270,7 @@ class UnifiedCoordinatesTest {
 				list.add(base.with("orientation", "ALONG_Z").with("caps", "BOTH"));
 			}
 			case "spiral" -> {
-				list.add(base.with("follow_circle", true).with("circle_width", 20));
+				list.add(base.with("circle_mode", "FOLLOW").with("circle_width", 20));
 				list.add(base.with("start_height", 3));
 				list.add(base.with("allow_outside", true));
 			}

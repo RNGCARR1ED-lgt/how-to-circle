@@ -14,6 +14,7 @@ import com.howtobuild.geometry.CircularFootprint;
 import com.howtobuild.geometry.GeometryCenter;
 import com.howtobuild.geometry.Facing;
 import com.howtobuild.geometry.GeometryBuilder;
+import com.howtobuild.geometry.Guide;
 import com.howtobuild.geometry.MaterialRole;
 import com.howtobuild.geometry.ShapeKind;
 import com.howtobuild.tools.BuildTool;
@@ -37,7 +38,11 @@ import com.howtobuild.tools.capability.Rotatable;
  *     <li>with its own size, a circle of exactly {@code diameter × diameter} blocks: odd sizes get a 1×1 centre, even
  *     sizes a genuine 2×2 centre (the four middle blocks), never rounded to an odd size;</li>
  *     <li>with <b>Follow Circle Dimensions</b>, the master circle or oval of exactly {@code width × length} blocks, so every
- *     block of the staircase, including all details, is one of the circle's cells.</li>
+ *     block of the staircase, including all details, is one of the circle's cells;</li>
+ *     <li>with <b>Fit Inside Circle</b>, the master circle is the outer space (e.g. a tower wall): the steps use the
+ *     footprint shrunk by the wall thickness plus the clearance (exact erosion of the discrete cells, so a 16 circle
+ *     with a 1-block wall gives a 14 staircase with the same 2×2 centre), and nothing but the Wall detail enters the
+ *     wall zone.</li>
  * </ul>
  * Stair width grows inwards from the fixed outer boundary (exact erosion), or an inner radius cuts the hole. Angles and
  * stair facing are measured from the footprint's true centre, so even-sized (2×2 centre) spirals are symmetric. The
@@ -88,6 +93,37 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 		return true;
 	}
 
+	/** How the staircase relates to a master circle. */
+	public enum CircleMode {
+		/** Own diameter. */
+		OFF,
+		/** The staircase's outer edge is the circle's outer edge. */
+		FOLLOW,
+		/** The staircase fits inside the circle's wall, with a clearance. */
+		FIT_INSIDE
+	}
+
+	/** Treatment of the outer edge of the steps. */
+	public enum OuterEdge {
+		SIMPLE,
+		STRAIGHT,
+		ROUNDED,
+		TRIMMED,
+		STEPPED,
+		DETAILED,
+		CUSTOM
+	}
+
+	/** Treatment of the inner edge (around the hole). */
+	public enum InnerEdge {
+		OPEN,
+		CENTRAL_COLUMN,
+		INNER_RAIL,
+		INNER_WALL,
+		TRIM,
+		DECORATIVE_RING
+	}
+
 	/** Shape of the master footprint when following circle dimensions. */
 	public enum MasterShape {
 		CIRCLE,
@@ -97,7 +133,7 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 	@Override
 	public List<ToolParameter> parameters() {
 		return List.of(
-				ToolParameter.integer("diameter", 1, 1024, 11).visibleWhen(s -> !s.getBool("follow_circle")),
+				ToolParameter.integer("diameter", 1, 1024, 11).visibleWhen(s -> circleMode(s) == CircleMode.OFF),
 				ToolParameter.integer("stair_width", 1, 64, 3),
 				ToolParameter.integer("height", 2, 384, 16),
 				ToolParameter.integer("revolutions", 0, 50, 2),
@@ -106,13 +142,22 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 				ToolParameter.integer("step_rise", 1, 4, 1).advanced(),
 				ToolParameter.integer("start_angle", 0, 359, 0).advanced(),
 				ToolParameter.integer("start_height", 0, 128, 0).advanced(),
-				ToolParameter.bool("follow_circle", false).section("circle"),
-				ToolParameter.choice("master_shape", MasterShape.CIRCLE).section("circle").visibleWhen(s -> s.getBool("follow_circle")),
-				ToolParameter.integer("circle_width", 1, 1024, 33).section("circle").visibleWhen(s -> s.getBool("follow_circle")),
+				ToolParameter.choice("circle_mode", CircleMode.OFF).section("circle"),
+				ToolParameter.choice("master_shape", MasterShape.CIRCLE).section("circle").visibleWhen(s -> circleMode(s) != CircleMode.OFF),
+				ToolParameter.integer("circle_width", 1, 1024, 33).section("circle").visibleWhen(s -> circleMode(s) != CircleMode.OFF),
 				ToolParameter.integer("circle_length", 1, 1024, 33).section("circle")
-						.visibleWhen(s -> s.getBool("follow_circle") && s.getEnum("master_shape", MasterShape.class) == MasterShape.OVAL),
+						.visibleWhen(s -> circleMode(s) != CircleMode.OFF && s.getEnum("master_shape", MasterShape.class) == MasterShape.OVAL),
+				ToolParameter.integer("wall_thickness", 0, 16, 1).section("circle").visibleWhen(s -> circleMode(s) == CircleMode.FIT_INSIDE),
+				ToolParameter.integer("clearance", 0, 16, 0).section("circle").visibleWhen(s -> circleMode(s) == CircleMode.FIT_INSIDE),
+				ToolParameter.bool("auto_inset", true).section("circle").visibleWhen(s -> circleMode(s) == CircleMode.FIT_INSIDE),
+				ToolParameter.integer("inset", 0, 64, 1).section("circle")
+						.visibleWhen(s -> circleMode(s) == CircleMode.FIT_INSIDE && !s.getBool("auto_inset")),
 				ToolParameter.integer("inner_radius", 0, 512, 0).section("circle"),
 				ToolParameter.bool("allow_outside", false).section("circle"),
+				ToolParameter.choice("outer_edge", OuterEdge.SIMPLE).section("edges"),
+				ToolParameter.integer("edge_thickness", 1, 8, 1).section("edges").visibleWhen(s -> s.getEnum("outer_edge", OuterEdge.class) != OuterEdge.SIMPLE),
+				ToolParameter.choice("edge_type", PartType.AUTO).section("edges").visibleWhen(s -> s.getEnum("outer_edge", OuterEdge.class) == OuterEdge.CUSTOM),
+				ToolParameter.choice("inner_edge", InnerEdge.OPEN).section("edges"),
 				ToolParameter.choice("centre_size", CentreSize.AUTO).section("centre"),
 				ToolParameter.choice("main_step", PartType.AUTO).section("staircase"),
 				ToolParameter.choice("support", PartType.AUTO).section("staircase"),
@@ -120,9 +165,54 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 				ToolParameter.integer("support_depth", 1, 8, 1).section("staircase").advanced());
 	}
 
+	public static CircleMode circleMode(ToolSettings s) {
+		return s.getEnum("circle_mode", CircleMode.class);
+	}
+
+	/**
+	 * Blocks between the master circle's outer edge and the steps: in Fit Inside mode the wall thickness plus the
+	 * clearance (or the manual inset); otherwise one block when a wall detail takes the outer ring.
+	 */
+	public static int inset(ToolSettings s, DetailSettings d) {
+		if (circleMode(s) == CircleMode.FIT_INSIDE) {
+			return s.getBool("auto_inset") ? s.getInt("wall_thickness") + s.getInt("clearance") : s.getInt("inset");
+		}
+
+		return wallInside(s, d) ? 1 : 0;
+	}
+
+	/** Thickness of the wall zone (the master circle's outer ring reserved for the Wall detail). */
+	static int wallThickness(ToolSettings s, DetailSettings d) {
+		if (circleMode(s) == CircleMode.FIT_INSIDE) return Math.max(s.getInt("wall_thickness"), wallInside(s, d) ? 1 : 0);
+
+		return wallInside(s, d) ? 1 : 0;
+	}
+
+	/**
+	 * The master footprint shrunk by {@code inset} blocks: the circle (or oval) of the smaller size, clipped to the exact
+	 * erosion of the master so it can never touch the wall zone. Even sizes keep their 2×2 centre (16 → 14 → 12).
+	 */
+	public static CircularFootprint fitInside(CircularFootprint master, int inset) {
+		if (inset <= 0) return master;
+
+		CircularFootprint eroded = master.inset(inset);
+		int w = master.width() - 2 * inset;
+		int l = master.length() - 2 * inset;
+
+		if (w <= 0 || l <= 0) return eroded;
+
+		CircularFootprint round = CircularFootprint.of(w, l, master.centre().alignX(), master.centre().alignZ());
+		return round.without(round.without(eroded));
+	}
+
+	/** The footprint the steps live in (the master footprint, or its inset in Fit Inside mode). */
+	public static CircularFootprint stepFootprint(ToolSettings s, GenerationContext ctx) {
+		return fitInside(footprint(s, ctx), inset(s, ctx.details()));
+	}
+
 	/** Width (X) and length (Z) of the outer footprint for these settings. */
 	public static int[] footprintSize(ToolSettings s) {
-		if (s.getBool("follow_circle")) {
+		if (circleMode(s) != CircleMode.OFF) {
 			int w = s.getInt("circle_width");
 			int l = s.getEnum("master_shape", MasterShape.class) == MasterShape.CIRCLE ? w : s.getInt("circle_length");
 			return new int[] {w, l};
@@ -172,12 +262,21 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 		return s.getInt("revolutions") * 360 + s.getInt("extra_angle");
 	}
 
-	/** Nominal inner radius: the explicit inner radius, or the outer radius minus the stair width. */
+	/** Nominal inner radius: the explicit inner radius, or the (inset) outer radius minus the stair width. */
 	public static double innerRadius(ToolSettings s) {
+		int[] size = footprintSize(s);
+		int inset = circleMode(s) == CircleMode.FIT_INSIDE ? inset(s, DetailSettings.NONE) : 0;
+		return innerRadius(s, Math.min(size[0], size[1]) - 2 * inset);
+	}
+
+	static double innerRadius(ToolSettings s, CircularFootprint stepsOuter) {
+		return innerRadius(s, Math.min(stepsOuter.width(), stepsOuter.length()) - 2 * leadingEmpty(stepsOuter));
+	}
+
+	private static double innerRadius(ToolSettings s, int outerSize) {
 		if (s.getInt("inner_radius") > 0) return s.getInt("inner_radius");
 
-		int[] size = footprintSize(s);
-		return Math.max(0, Math.min(size[0], size[1]) / 2.0 - s.getInt("stair_width"));
+		return Math.max(0, outerSize / 2.0 - s.getInt("stair_width"));
 	}
 
 	/**
@@ -254,10 +353,19 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 
 		if (incompatible != null) r.error(incompatible);
 
+		int fitInset = circleMode(s) == CircleMode.FIT_INSIDE ? inset(s, ctx.details()) : 0;
+		r.errorIf(fitInset > 0 && Math.min(footprint[0], footprint[1]) - 2 * fitInset < 1, "The wall and clearance (" + fitInset
+				+ " blocks on each side) leave no room inside the " + footprint[0] + " × " + footprint[1] + " circle.");
+
+		if (circleMode(s) == CircleMode.FIT_INSIDE && !s.getBool("auto_inset")) {
+			r.warnIf(fitInset < s.getInt("wall_thickness"), "⚠ The inset (" + fitInset + ") is smaller than the wall thickness ("
+					+ s.getInt("wall_thickness") + "); the steps would overlap the wall.");
+		}
+
 		if (!r.ok()) return r;
 
 		int[] size = footprintSize(s);
-		double half = Math.min(size[0], size[1]) / 2.0;
+		double half = (Math.min(size[0], size[1]) - 2 * fitInset) / 2.0;
 		r.warnIf(s.getInt("inner_radius") <= 0 && width >= half, "⚠ Stair width (" + width + ") is larger than the outer radius ("
 				+ half + "); the steps meet in the middle.");
 		r.warnIf(s.getInt("inner_radius") > 0 && s.getInt("inner_radius") >= half,
@@ -294,18 +402,25 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 		double startAngle = s.getInt("start_angle");
 		int dir = s.getEnum("direction", Direction.class) == Direction.CLOCKWISE ? 1 : -1;
 		int supportDepth = s.getInt("support_depth");
-		boolean trimEnabled = a.trim() != PartType.NONE || d.has(DetailFeature.STEP_TRIM);
+		OuterEdge outerEdge = s.getEnum("outer_edge", OuterEdge.class);
+		InnerEdge innerEdge = s.getEnum("inner_edge", InnerEdge.class);
+		boolean legacyTrim = outerEdge == OuterEdge.SIMPLE && (a.trim() != PartType.NONE || d.has(DetailFeature.STEP_TRIM));
 		PartType trimType = a.trim() != PartType.NONE ? a.trim() : a.main();
 		boolean allowOutside = s.getBool("allow_outside");
+		CircleMode mode = circleMode(s);
 
 		// One footprint is the source of truth; every part below is derived from it.
 		CircularFootprint master = footprint(s, ctx);
 		GeometryCenter centre = master.centre();
-		boolean wallInside = wallInside(s, d);
-		CircularFootprint stepsOuter = wallInside ? master.inset(1) : master;
+		int inset = inset(s, d);
+		int wallThickness = wallThickness(s, d);
+		CircularFootprint stepsOuter = fitInside(master, inset);
+		CircularFootprint wallZone = wallThickness > 0 ? master.without(master.inset(wallThickness)) : master.without(master);
 		CircularFootprint area = stepArea(s, stepsOuter);
 		CircularFootprint interior = stepsOuter.without(area);
-		CircularFootprint outerEdge = stepsOuter.boundary();
+		CircularFootprint outerRing = stepsOuter.boundary();
+		CircularFootprint edgeZone = outerEdge == OuterEdge.SIMPLE ? outerRing : area.without(stepsOuter.inset(s.getInt("edge_thickness")));
+		CircularFootprint innerRing = interior.boundary();
 		double radius = Math.max(1, Math.max(master.width(), master.length()) / 2.0);
 		int baseY = startUnits / 2;
 		int[] intersections = {0};
@@ -313,7 +428,8 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 		area.forEach((x, z) -> {
 			double phi = centre.angleDegrees(x, z);
 			double relative = Math.floorMod((long) Math.floor((dir * (phi - startAngle)) * 1000), 360_000L) / 1000.0;
-			boolean outerCell = outerEdge.contains(x, z);
+			boolean outerCell = outerRing.contains(x, z);
+			boolean edgeCell = edgeZone.contains(x, z);
 			boolean innerCell = interior.contains(x - 1, z) || interior.contains(x + 1, z) || interior.contains(x, z - 1) || interior.contains(x, z + 1);
 			Facing ascent = ascent(centre, x, z, dir);
 
@@ -324,17 +440,44 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 
 				int top = startUnits + (step + 1) * rise; // top of the walking surface, in half blocks
 				MaterialRole stepRole = d.has(DetailFeature.ALTERNATE_STEPS) && (step & 1) == 1 ? MaterialRole.ACCENT : MaterialRole.STEP;
-				PartType type = trimEnabled && outerCell ? trimType : a.main();
-				MaterialRole role = trimEnabled && outerCell ? MaterialRole.TRIM : stepRole;
+				PartType type = a.main();
+				MaterialRole role = stepRole;
+
+				if (legacyTrim && outerCell) {
+					type = trimType;
+					role = MaterialRole.TRIM;
+				} else if (outerEdge != OuterEdge.SIMPLE && edgeCell) {
+					type = edgeType(s, outerEdge, a);
+					role = outerEdge == OuterEdge.TRIMMED ? MaterialRole.TRIM : MaterialRole.OUTER_EDGE;
+
+					if (outerEdge == OuterEdge.DETAILED && step % Math.max(2, d.interval()) == 0) role = MaterialRole.HIGHLIGHT;
+				} else if (innerEdge == InnerEdge.TRIM && innerCell) {
+					type = trimType;
+					role = MaterialRole.INNER_EDGE;
+				}
+
 				int y = mainY(type, top, ctx.slabMode());
 
 				if (out.has(x, y, z)) intersections[0]++;
 
 				out.set(x, y, z, role, mainShape(type, top, ascent, ctx.slabMode()));
+				out.group(x, y, z, step);
 				placeSupport(out, a.support(), x, y, z, ascent, supportDepth, baseY);
 
+				if (outerEdge == OuterEdge.STEPPED && outerCell) {
+					out.setIfAbsent(x, y + 1, z, MaterialRole.OUTER_EDGE, BlockShape.FULL);
+					out.group(x, y + 1, z, step);
+				}
+
+				if (outerEdge == OuterEdge.DETAILED && outerCell) {
+					out.setIfAbsent(x, y - 1, z, MaterialRole.TRIM, BlockShape.FULL);
+					out.setIfAbsent(x, y + 1, z, MaterialRole.RAIL, BlockShape.FULL);
+				}
+
 				if (d.has(DetailFeature.OUTER_RAIL) && outerCell) out.setIfAbsent(x, y + 1, z, MaterialRole.RAIL, BlockShape.FULL);
-				if (d.has(DetailFeature.INNER_RAIL) && innerCell) out.setIfAbsent(x, y + 1, z, MaterialRole.RAIL, BlockShape.FULL);
+				if ((d.has(DetailFeature.INNER_RAIL) || innerEdge == InnerEdge.INNER_RAIL) && innerCell) {
+					out.setIfAbsent(x, y + 1, z, MaterialRole.RAIL, BlockShape.FULL);
+				}
 
 				if (d.has(DetailFeature.SUPPORT_PILLARS) && outerCell && step % Math.max(2, d.interval()) == 0
 						&& Math.abs(angle - (step + 0.5) * stepAngle) < 360.0 / (2 * Math.PI * radius) * 0.75) {
@@ -347,17 +490,28 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 
 		int topY = (startUnits + steps * rise + 1) / 2;
 
-		if (d.has(DetailFeature.CENTRAL_COLUMN)) {
+		if (d.has(DetailFeature.CENTRAL_COLUMN) || innerEdge == InnerEdge.CENTRAL_COLUMN) {
+			MaterialRole columnRole = d.has(DetailFeature.CENTRAL_COLUMN) ? MaterialRole.SUPPORT : MaterialRole.INNER_EDGE;
 			interior.forEach((x, z) -> {
 				for (int y = baseY; y < topY; y++) {
-					out.setIfAbsent(x, y, z, MaterialRole.SUPPORT, BlockShape.FULL);
+					out.setIfAbsent(x, y, z, columnRole, BlockShape.FULL);
+				}
+			});
+		}
+
+		if (innerEdge == InnerEdge.INNER_WALL || innerEdge == InnerEdge.DECORATIVE_RING) {
+			int interval = Math.max(2, d.interval());
+			innerRing.forEach((x, z) -> {
+				for (int y = baseY; y < topY; y++) {
+					if (innerEdge == InnerEdge.INNER_WALL) out.setIfAbsent(x, y, z, MaterialRole.INNER_EDGE, BlockShape.FULL);
+					else if ((y - baseY) % interval == 0) out.setIfAbsent(x, y, z, MaterialRole.INNER_EDGE, BlockShape.BOTTOM_SLAB);
 				}
 			});
 		}
 
 		if (d.has(DetailFeature.WALL_ATTACHMENT) || d.has(DetailFeature.RING_SUPPORT)) {
-			// Inside the boundary by default: the wall is the master circle's own outer ring.
-			CircularFootprint wall = wallInside ? master.boundary()
+			// Inside the boundary by default: the wall is the master circle's own outer ring (or the whole wall zone).
+			CircularFootprint wall = wallThickness > 0 ? wallZone
 					: CircularFootprint.of(master.width() + 2, master.length() + 2, centre.alignX(), centre.alignZ()).boundary();
 
 			wall.forEach((x, z) -> {
@@ -389,22 +543,66 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 					: "⚠ Spiral exceeds master circle boundary by " + outside + " blocks. Please report this.");
 		}
 
-		if (s.getBool("follow_circle")) {
-			master.boundary().forEach((x, z) -> out.guide(x, 0, z));
+		if (mode == CircleMode.FIT_INSIDE) {
+			// Only the Wall detail may enter the wall zone; nothing at all enters the clearance.
+			long intruding = out.snapshot().stream()
+					.filter(p -> master.contains(p.x(), p.z()) && !stepsOuter.contains(p.x(), p.z()))
+					.filter(p -> !wallZone.contains(p.x(), p.z()) || !(d.has(DetailFeature.WALL_ATTACHMENT) || d.has(DetailFeature.RING_SUPPORT)))
+					.count();
+
+			if (intruding > 0) out.warn("⚠ " + intruding + " blocks enter the wall or clearance zone. Please report this.");
+		}
+
+		if (mode != CircleMode.OFF) {
+			master.boundary().forEach((x, z) -> out.guide(x, 0, z, Guide.OUTLINE));
+		}
+
+		if (inset > 0 && mode == CircleMode.FIT_INSIDE) {
+			stepsOuter.boundary().forEach((x, z) -> out.guide(x, 0, z, Guide.INSET));
 		}
 
 		centre.addCentreCells(out, 0);
 		out.value("radius", radius);
-		out.value("inner_radius", innerRadius(s));
+		out.value("inner_radius", innerRadius(s, stepsOuter));
 		out.value("stair_width", s.getInt("stair_width"));
 		out.value("footprint_width", master.width());
 		out.value("footprint_length", master.length());
+		out.value("inset", inset);
+		out.value("stairs_width", stepsOuter.width() - 2 * leadingEmpty(stepsOuter));
 		out.value("height", s.getInt("height"));
 		out.value("revolutions", totalAngle / 360.0);
 		out.value("rise_per_revolution", s.getInt("height") * 360.0 / totalAngle);
 		out.value("steps", steps);
+		out.value("steps_per_revolution", totalAngle >= 360 ? steps * 360.0 / totalAngle : steps);
 		out.value("step_angle", stepAngle);
 		out.value("end_angle", Math.floorMod(Math.round(startAngle + dir * totalAngle), 360));
+	}
+
+	/** Columns on each side of the footprint's mask that hold no cell (the inset of a fitted footprint). */
+	private static int leadingEmpty(CircularFootprint f) {
+		for (int i = 0; i < (f.width() + 1) / 2; i++) {
+			int x = f.minX() + i;
+
+			for (int z = f.minZ(); z <= f.maxZ(); z++) {
+				if (f.contains(x, z)) return i;
+			}
+		}
+
+		return 0;
+	}
+
+	/** The part type the outer edge cells use. */
+	static PartType edgeType(ToolSettings s, OuterEdge edge, Assignment a) {
+		return switch (edge) {
+			case ROUNDED -> PartType.SLABS;
+			case TRIMMED -> a.trim() != PartType.NONE ? a.trim() : PartType.SLABS;
+			case STEPPED, DETAILED -> PartType.BLOCKS;
+			case CUSTOM -> {
+				PartType t = s.getEnum("edge_type", PartType.class);
+				yield t == PartType.AUTO || t == PartType.NONE ? a.main() : t;
+			}
+			default -> a.main();
+		};
 	}
 
 	/** Direction a player walks to go up at this column: the spiral's tangent, rounded to a cardinal direction. */
@@ -501,12 +699,12 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 	@Override
 	public Set<MaterialRole> roles() {
 		return EnumSet.of(MaterialRole.STEP, MaterialRole.SUPPORT, MaterialRole.TRIM, MaterialRole.RAIL, MaterialRole.ACCENT,
-				MaterialRole.FLOOR, MaterialRole.PRIMARY);
+				MaterialRole.FLOOR, MaterialRole.PRIMARY, MaterialRole.HIGHLIGHT, MaterialRole.OUTER_EDGE, MaterialRole.INNER_EDGE);
 	}
 
 	@Override
 	public List<String> dimensionKeys() {
-		return List.of("radius", "inner_radius", "stair_width", "footprint_width", "footprint_length", "height", "revolutions",
-				"rise_per_revolution", "steps");
+		return List.of("radius", "inner_radius", "stair_width", "footprint_width", "footprint_length", "inset", "stairs_width", "height",
+				"revolutions", "rise_per_revolution", "steps", "steps_per_revolution");
 	}
 }

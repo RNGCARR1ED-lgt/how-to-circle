@@ -105,6 +105,11 @@ public final class HowToBuildConfig {
 		m.put(MaterialRole.INNER, new MaterialSlot("minecraft:smooth_stone", "minecraft:smooth_stone_slab", "minecraft:stone_stairs"));
 		m.put(MaterialRole.RAIL, new MaterialSlot("minecraft:dark_oak_planks", "minecraft:dark_oak_slab", "minecraft:dark_oak_stairs"));
 		m.put(MaterialRole.FLOOR, new MaterialSlot("minecraft:spruce_planks", "minecraft:spruce_slab", "minecraft:spruce_stairs"));
+		m.put(MaterialRole.SECONDARY, new MaterialSlot("minecraft:andesite", "minecraft:andesite_slab", "minecraft:andesite_stairs"));
+		m.put(MaterialRole.HIGHLIGHT, new MaterialSlot("minecraft:polished_diorite", "minecraft:polished_diorite_slab", "minecraft:polished_diorite_stairs"));
+		m.put(MaterialRole.OUTER_EDGE, new MaterialSlot("minecraft:polished_blackstone_bricks", "minecraft:polished_blackstone_brick_slab",
+				"minecraft:polished_blackstone_brick_stairs"));
+		m.put(MaterialRole.INNER_EDGE, new MaterialSlot("minecraft:polished_deepslate", "minecraft:polished_deepslate_slab", "minecraft:polished_deepslate_stairs"));
 		return m;
 	}
 
@@ -161,6 +166,7 @@ public final class HowToBuildConfig {
 		if (toolSettings == null) toolSettings = new LinkedHashMap<>();
 
 		migrateSpiralRadius();
+		migrateSpiralCircleMode();
 
 		for (BuildTool t : ToolRegistry.all()) {
 			toolSettings.put(t.id(), new LinkedHashMap<>(settings(t).asMap()));
@@ -227,6 +233,19 @@ public final class HowToBuildConfig {
 		}
 
 		spiral.remove("outer_radius");
+	}
+
+	/** "Follow circle dimensions" was a toggle; it is now one of the spiral's circle modes. */
+	private void migrateSpiralCircleMode() {
+		Map<String, String> spiral = toolSettings.get("spiral");
+
+		if (spiral == null || !spiral.containsKey("follow_circle")) return;
+
+		if (!spiral.containsKey("circle_mode")) {
+			spiral.put("circle_mode", Boolean.parseBoolean(spiral.get("follow_circle").trim()) ? "FOLLOW" : "OFF");
+		}
+
+		spiral.remove("follow_circle");
 	}
 
 	private static int clamp(int v, int min, int max) {

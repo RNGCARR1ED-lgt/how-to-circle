@@ -566,8 +566,9 @@ public final class HowToBuildScreen extends BaseScreen {
 
 	/**
 	 * Takes the master footprint from the Circle tool (or the Oval tool when the master shape is an oval) and turns on
-	 * Follow Circle Dimensions. With {@code fit}, also keeps every detail inside, uses the automatic centre and limits
-	 * the stair width / inner radius so there is room for steps.
+	 * Follow Circle Dimensions. With {@code fit}, switches to Fit Inside Circle instead (the steps sit inside the wall
+	 * and clearance), keeps every detail inside, uses the automatic centre and limits the stair width / inner radius so
+	 * there is room for steps.
 	 */
 	void copyCircleDimensions(BuildTool spiral, boolean fit) {
 		HowToBuildConfig c = config();
@@ -585,12 +586,13 @@ public final class HowToBuildScreen extends BaseScreen {
 			length = width;
 		}
 
-		c.setSetting(spiral, "follow_circle", "true");
+		c.setSetting(spiral, "circle_mode", fit ? "FIT_INSIDE" : "FOLLOW");
 		c.setSetting(spiral, "circle_width", Integer.toString(width));
 		c.setSetting(spiral, "circle_length", Integer.toString(length));
 
 		if (fit) {
-			int half = Math.max(1, Math.min(width, length) / 2);
+			int room = Math.min(width, length) - 2 * (s.getInt("wall_thickness") + s.getInt("clearance"));
+			int half = Math.max(1, room / 2);
 			c.setSetting(spiral, "allow_outside", "false");
 			c.setSetting(spiral, "centre_size", "AUTO");
 			c.setSetting(spiral, "stair_width", Integer.toString(Math.max(1, Math.min(s.getInt("stair_width"), half - 1))));
@@ -607,19 +609,21 @@ public final class HowToBuildScreen extends BaseScreen {
 		switch (p.type()) {
 			case INT -> number(x, y, w, p.labelKey(), p.min(), p.max(), () -> c.settings(tool).getInt(p.id()),
 					v -> c.setSetting(tool, p.id(), Integer.toString(v)), p.tooltipKey());
-			case BOOL -> toggle(x, y, w, p.labelKey(), () -> c.settings(tool).getBool(p.id()), v -> {
-				if (p.id().equals("follow_circle") && v) {
-					copyCircleDimensions(tool, false);
-				} else {
-					c.setSetting(tool, p.id(), Boolean.toString(v));
-				}
-			}, p.tooltipKey(), true);
+			case BOOL -> toggle(x, y, w, p.labelKey(), () -> c.settings(tool).getBool(p.id()), v -> c.setSetting(tool, p.id(), Boolean.toString(v)),
+					p.tooltipKey(), true);
 			case ENUM -> dynamicButton(x, y, w, () -> Component.translatable(p.labelKey()).append(": ")
 					.append(Component.translatable(ToolParameter.optionKey(c.settings(tool).raw(p.id())))), () -> {
 				List<String> options = p.options();
 				int index = options.indexOf(c.settings(tool).raw(p.id()));
 				int next = (index + (hasShiftDown() ? options.size() - 1 : 1)) % options.size();
-				c.setSetting(tool, p.id(), options.get(next));
+
+				if (p.id().equals("circle_mode") && "OFF".equals(options.get(index < 0 ? 0 : index)) && !"OFF".equals(options.get(next))) {
+					// Turning the master circle on copies the Circle tool's size.
+					copyCircleDimensions(tool, "FIT_INSIDE".equals(options.get(next)));
+				} else {
+					c.setSetting(tool, p.id(), options.get(next));
+				}
+
 				rebuild();
 			}, p.tooltipKey());
 		}

@@ -44,6 +44,14 @@ public interface BuildTool {
 		return VerticalAnchor.BASE;
 	}
 
+	/**
+	 * The randomisation applied to this tool's result. By default the player's global randomisation (Randomise tab);
+	 * the Randomisation tool always randomises.
+	 */
+	default com.howtobuild.palette.RandomSettings randomisation(ToolSettings settings, GenerationContext context) {
+		return context.palettes().random();
+	}
+
 	/** Whether the Blocks / Slabs / Stairs material types change what this tool generates. */
 	default boolean usesMaterialTypes() {
 		return false;
