@@ -47,7 +47,7 @@ import com.howtobuild.geometry.StateTransform;
  */
 public final class MaterialResolver {
 	/** Shown in place of a block that does not exist in this game. */
-	public static final BlockState MISSING = Blocks.MAGENTA_WOOL.defaultBlockState();
+	public static final BlockState MISSING = Blocks.PURPUR_BLOCK.defaultBlockState();
 
 	private record Key(MaterialRole role, BlockShape shape, int variant) {
 	}

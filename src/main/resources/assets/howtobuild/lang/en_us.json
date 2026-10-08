@@ -804,7 +804,7 @@
 	"gui.howtobuild.dashboard.blocks": "%s blocks · %s materials",
 	"gui.howtobuild.dashboard.flags": "Details: %s · Randomisation: %s · Mirror: %s",
 	"gui.howtobuild.dashboard.inset": "inset %s",
-	"gui.howtobuild.dashboard.missing": "Not in this game (shown magenta, not built): %s",
+	"gui.howtobuild.dashboard.missing": "Not in this game (shown as purpur, not built): %s",
 	"gui.howtobuild.dashboard.materials": "Materials",
 	"gui.howtobuild.dashboard.no_materials": "Nothing to build yet.",
 	"gui.howtobuild.dashboard.block_list": "Show block list",

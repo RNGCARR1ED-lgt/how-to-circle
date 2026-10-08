@@ -192,7 +192,30 @@ public final class StateTransform {
 			}
 		}
 
-		return changed ? String.join("_", parts) : value;
+		if (!changed) return value;
+
+		// Two-direction values (rail shapes) are named north/south first, then east/west: north_east, south_west, …
+		if (parts.length == 2 && isEastWest(parts[0]) && isNorthSouth(parts[1])) {
+			String first = parts[0];
+			parts[0] = parts[1];
+			parts[1] = first;
+		}
+
+		if (parts.length == 2 && (parts[0].equals("south") && parts[1].equals("north") || parts[0].equals("west") && parts[1].equals("east"))) {
+			String first = parts[0];
+			parts[0] = parts[1];
+			parts[1] = first;
+		}
+
+		return String.join("_", parts);
+	}
+
+	private static boolean isNorthSouth(String word) {
+		return word.equals("north") || word.equals("south");
+	}
+
+	private static boolean isEastWest(String word) {
+		return word.equals("east") || word.equals("west");
 	}
 
 	private static int parse(String value) {

@@ -470,7 +470,7 @@ public final class SpiralStaircaseTool implements BuildTool, Mirrorable, Rotatab
 				}
 
 				if (outerEdge == OuterEdge.DETAILED && outerCell) {
-					out.setIfAbsent(x, y - 1, z, MaterialRole.TRIM, BlockShape.FULL);
+					if (y - 1 >= baseY) out.setIfAbsent(x, y - 1, z, MaterialRole.TRIM, BlockShape.FULL);
 					out.setIfAbsent(x, y + 1, z, MaterialRole.RAIL, BlockShape.FULL);
 				}
 

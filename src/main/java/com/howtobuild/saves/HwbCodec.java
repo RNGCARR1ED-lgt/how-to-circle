@@ -43,7 +43,26 @@ public final class HwbCodec {
 	private HwbCodec() {
 	}
 
+	/** Checks everything {@link #read} checks, so a file that was written can always be read back. */
+	public static void validate(BuildFile file) throws HwbFormatException {
+		if (file.blocks().length % 4 != 0) throw new HwbFormatException("Block data must hold 4 values per block.");
+		if (file.blockCount() > MAX_BLOCKS) throw new HwbFormatException("Too many blocks (" + file.blockCount() + ", at most " + MAX_BLOCKS + ").");
+		if (file.palette().size() > MAX_PALETTE) throw new HwbFormatException("Too many block states (" + file.palette().size() + ").");
+		if (file.centreCells().size() > 64) throw new HwbFormatException("Invalid centre (" + file.centreCells().size() + " cells).");
+
+		for (String state : file.palette()) {
+			if (state == null || !STATE.matcher(state).matches()) throw new HwbFormatException("Invalid block state: " + state);
+		}
+
+		int[] b = file.blocks();
+
+		for (int i = 3; i < b.length; i += 4) {
+			if (b[i] < 0 || b[i] >= file.palette().size()) throw new HwbFormatException("Block " + i / 4 + " refers to a missing palette entry.");
+		}
+	}
+
 	public static void write(BuildFile file, OutputStream raw) throws IOException {
+		validate(file);
 		raw.write(MAGIC);
 		raw.write(VERSION);
 		GZIPOutputStream gzip = new GZIPOutputStream(new BufferedOutputStream(raw));
@@ -168,16 +187,24 @@ public final class HwbCodec {
 	/** Writes to {@code target} through a temporary file, so an existing build is only replaced by a complete one. */
 	public static void save(BuildFile file, Path target) throws IOException {
 		Files.createDirectories(target.toAbsolutePath().getParent());
+		validate(file);
 		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
 
-		try (OutputStream out = Files.newOutputStream(temp)) {
-			write(file, out);
-		}
-
 		try {
-			Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		} catch (AtomicMoveNotSupportedException e) {
-			Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+			try (OutputStream out = Files.newOutputStream(temp)) {
+				write(file, out);
+			}
+
+			// Read it back before replacing anything: only a complete, readable file replaces the old one.
+			load(temp);
+
+			try {
+				Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+			} catch (AtomicMoveNotSupportedException e) {
+				Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+			}
+		} finally {
+			Files.deleteIfExists(temp);
 		}
 	}
 
