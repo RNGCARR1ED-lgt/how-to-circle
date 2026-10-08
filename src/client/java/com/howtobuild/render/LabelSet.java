@@ -24,6 +24,7 @@ import com.howtobuild.dimensions.DimensionFormat;
 import com.howtobuild.dimensions.DimensionFormatter;
 import com.howtobuild.dimensions.LabelComponent;
 import com.howtobuild.dimensions.SectionDetector;
+import com.howtobuild.geometry.Annotation;
 import com.howtobuild.geometry.Box;
 import com.howtobuild.geometry.BoxDecomposer;
 import com.howtobuild.geometry.GeometryResult;
@@ -145,6 +146,12 @@ public final class LabelSet {
 			planarSections(b, originals, normal, settings, style, extra);
 		} else {
 			volumeSections(b, originals, settings, style, extra, materials);
+		}
+
+		for (Annotation a : result.annotations()) {
+			// Annotations name world heights ("Y={y}"), which depend on where the preview is placed.
+			String text = a.text().replace("{y}", Integer.toString(resolved.transform().y(a.y())));
+			b.add(new float[] {a.x() + 0.5F, a.y() + 1.2F, a.z() + 0.5F}, text, SECTION, 2e6F, 0, new int[] {a.x(), a.y(), a.z(), a.x(), a.y(), a.z()});
 		}
 
 		if (settings.showOverall) overall(b, all, normal, settings, style);

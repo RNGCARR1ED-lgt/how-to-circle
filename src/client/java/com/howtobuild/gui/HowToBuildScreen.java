@@ -15,13 +15,19 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.StairBlock;
 
 import com.howtobuild.building.CommandPermission;
+import com.howtobuild.client.BuildLibrary;
 import com.howtobuild.client.BuildSession;
 import com.howtobuild.commands.CommandPlan;
+import com.howtobuild.commands.MaterialCounter;
 import com.howtobuild.config.BuildConfig;
 import com.howtobuild.config.HowToBuildConfig;
 import com.howtobuild.config.MaterialSlot;
+import com.howtobuild.config.RandomConfig;
+import com.howtobuild.config.TerrainLayerConfig;
 import com.howtobuild.details.DetailFeature;
 import com.howtobuild.details.DetailPreset;
 import com.howtobuild.details.MaterialPattern;
@@ -38,6 +44,11 @@ import com.howtobuild.geometry.ShapeKind;
 import com.howtobuild.input.CentreSelectionHandler;
 import com.howtobuild.materials.BlockCatalog;
 import com.howtobuild.materials.MaterialResolver;
+import com.howtobuild.palette.MirrorRandomisation;
+import com.howtobuild.palette.RandomMode;
+import com.howtobuild.palette.RandomPattern;
+import com.howtobuild.palette.RandomSymmetry;
+import com.howtobuild.palette.WeightedPalette;
 import com.howtobuild.tools.BuildTool;
 import com.howtobuild.tools.ToolParameter;
 import com.howtobuild.tools.ToolRegistry;
@@ -45,6 +56,7 @@ import com.howtobuild.tools.ToolSettings;
 import com.howtobuild.tools.capability.Detailable;
 import com.howtobuild.tools.capability.MaterialAssignable;
 import com.howtobuild.tools.capability.Rotatable;
+import com.howtobuild.tools.impl.TerrainTool;
 import com.howtobuild.transform.MirrorAxis;
 import com.howtobuild.transform.MirrorMode;
 
@@ -70,10 +82,12 @@ public final class HowToBuildScreen extends BaseScreen {
 		GEOMETRY,
 		CENTER,
 		MATERIALS,
+		RANDOMISE,
 		DETAILS,
 		LABELS,
 		MIRROR,
-		BUILD
+		BUILD,
+		BUILDS
 	}
 
 	private static final int HEADER_ROW = 16;
@@ -174,6 +188,8 @@ public final class HowToBuildScreen extends BaseScreen {
 		buildForm(columns);
 		buildStatus(cx, bottom - 34, cw);
 		buildBottomBar(left, this.height - 24, panelW);
+		int paneLeft = left + panelW + 12;
+		buildPreviewPane(paneLeft, top + 4, Math.min(240, this.width - paneLeft - 12), bottom);
 	}
 
 	// ----------------------------------------------------------------- tool list
@@ -262,7 +278,9 @@ public final class HowToBuildScreen extends BaseScreen {
 			case DETAILS -> detailRows();
 			case LABELS -> labelRows();
 			case MIRROR -> mirrorRows();
+			case RANDOMISE -> randomRows();
 			case BUILD -> buildRows();
+			case BUILDS -> savedBuildRows();
 		};
 
 		// Split into sections at header rows; each section goes whole into the currently shorter column.
@@ -611,6 +629,20 @@ public final class HowToBuildScreen extends BaseScreen {
 					v -> c.setSetting(tool, p.id(), Integer.toString(v)), p.tooltipKey());
 			case BOOL -> toggle(x, y, w, p.labelKey(), () -> c.settings(tool).getBool(p.id()), v -> c.setSetting(tool, p.id(), Boolean.toString(v)),
 					p.tooltipKey(), true);
+			case TEXT -> {
+				String label = Component.translatable(p.labelKey()).getString();
+				int labelW = Math.min(w / 3, font.width(label) + 6);
+				text(x, y + 6, labelW - 4, label, MUTED);
+				EditBox box = new EditBox(font, x + labelW, y, w - labelW, CONTROL_HEIGHT, Component.translatable(p.labelKey()));
+				box.setMaxLength(p.max());
+				box.setValue(c.settings(tool).raw(p.id()));
+				box.setResponder(v -> c.setSetting(tool, p.id(), v));
+				var tip = tooltip(p.tooltipKey());
+
+				if (tip != null) box.setTooltip(tip);
+
+				widget(box);
+			}
 			case ENUM -> dynamicButton(x, y, w, () -> Component.translatable(p.labelKey()).append(": ")
 					.append(Component.translatable(ToolParameter.optionKey(c.settings(tool).raw(p.id())))), () -> {
 				List<String> options = p.options();
@@ -681,6 +713,9 @@ public final class HowToBuildScreen extends BaseScreen {
 			c.materials = HowToBuildConfig.defaultMaterials();
 			rebuild();
 		}, null)));
+
+		if (tool instanceof TerrainTool) rows.addAll(terrainLayerRows());
+
 		return rows;
 	}
 
@@ -945,7 +980,7 @@ public final class HowToBuildScreen extends BaseScreen {
 		HowToBuildConfig c = config();
 		var h = c.hologram;
 		var b = c.build;
-		List<Row> rows = new ArrayList<>();
+		List<Row> rows = dashboardRows();
 		rows.add(header("gui.howtobuild.hologram"));
 		rows.add(pair((x, y, w) -> toggle(x, y, w, "gui.howtobuild.hologram.visible", () -> h.visible, v -> h.visible = v, "gui.howtobuild.hologram.visible.tooltip", false),
 				(x, y, w) -> number(x, y, w, "gui.howtobuild.hologram.opacity", 5, 90, () -> Math.round(h.opacity * 100), v -> h.opacity = v / 100F,
@@ -980,6 +1015,688 @@ public final class HowToBuildScreen extends BaseScreen {
 
 		rows.add(row((x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.build.open"), this::openBuild, "gui.howtobuild.build.open.tooltip")));
 		return rows;
+	}
+
+	// ---- Randomise
+
+	/** The Randomise tab: palette with percentages, arrangement, seed, roles, edge protection and symmetry. */
+	private List<Row> randomRows() {
+		HowToBuildConfig c = config();
+		RandomConfig r = c.random;
+		List<Row> rows = new ArrayList<>();
+		wrapNotes(rows, Component.translatable("gui.howtobuild.random.help").getString(), MUTED);
+		rows.add(row((x, y, w) -> toggle(x, y, w, "gui.howtobuild.random.enabled", () -> r.enabled, v -> r.enabled = v,
+				"gui.howtobuild.random.enabled.tooltip", true)));
+		rows.add(header("gui.howtobuild.random.palette"));
+
+		for (RandomConfig.Entry entry : r.palette) {
+			rows.add(new Row(24, (x, y, w) -> paletteRow(r.palette, entry, x, y, w)));
+		}
+
+		rows.add(pair((x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.random.add"), () -> pickBlock(id -> {
+					r.palette.add(new RandomConfig.Entry(id, 10));
+				}), "gui.howtobuild.random.add.tooltip"),
+				(x, y, w) -> toggle(x, y, w, "gui.howtobuild.random.normalise", () -> r.normalise, v -> r.normalise = v,
+						"gui.howtobuild.random.normalise.tooltip", false)));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> {
+			WeightedPalette palette = r.weightedPalette();
+			String total = Component.translatable("gui.howtobuild.random.total", String.format(Locale.ROOT, "%.1f", palette.total())).getString();
+			String warning = palette.totalWarning();
+			return warning == null ? total : total + " · " + warning;
+		}, () -> r.weightedPalette().totalWarning() == null ? GOOD : WARNING)));
+
+		rows.add(header("gui.howtobuild.random.arrangement"));
+		rows.add(pair((x, y, w) -> cycle(x, y, w, "gui.howtobuild.random.mode", () -> r.mode, v -> r.mode = v, RandomMode.values(),
+						"gui.howtobuild.random.mode.tooltip", false),
+				(x, y, w) -> cycle(x, y, w, "gui.howtobuild.random.pattern", () -> r.pattern, v -> r.pattern = v, RandomPattern.values(),
+						"gui.howtobuild.random.pattern.tooltip", true)));
+		rows.add(row((x, y, w) -> {
+			int third = (w - 8) / 3;
+			EditBox seed = number(x, y, third + 30, "gui.howtobuild.seed", 0, 999_999, () -> (int) r.seed, v -> r.seed = v, "gui.howtobuild.random.seed.tooltip");
+			button(x + third + 34, y, third - 15, Component.translatable("gui.howtobuild.random.again"), () -> {
+				boolean locked = r.lockSeed;
+				r.lockSeed = false;
+				r.reseed();
+				r.lockSeed = locked;
+				seed.setValue(Long.toString(r.seed));
+			}, "gui.howtobuild.random.again.tooltip");
+			toggle(x + 2 * third + 23, y, w - 2 * third - 23, "gui.howtobuild.random.lock", () -> r.lockSeed, v -> r.lockSeed = v,
+					"gui.howtobuild.random.lock.tooltip", false);
+		}));
+
+		if (EnumSet.of(RandomPattern.CLUSTERED, RandomPattern.PATCHY, RandomPattern.STRIPED, RandomPattern.RADIAL).contains(r.pattern)) {
+			rows.add(row((x, y, w) -> number(x, y, w, "gui.howtobuild.random.cluster", 1, 64, () -> r.clusterSize, v -> r.clusterSize = v,
+					"gui.howtobuild.random.cluster.tooltip")));
+		}
+
+		if (r.pattern == RandomPattern.NOISE || r.pattern == RandomPattern.CUSTOM || r.pattern == RandomPattern.NATURAL) {
+			rows.add(pair((x, y, w) -> number(x, y, w, "gui.howtobuild.random.scale", 1, 256, () -> r.noiseScale, v -> r.noiseScale = v,
+							"gui.howtobuild.random.scale.tooltip"),
+					(x, y, w) -> number(x, y, w, "gui.howtobuild.random.strength", 0, 100, () -> r.noiseStrength, v -> r.noiseStrength = v,
+							"gui.howtobuild.random.strength.tooltip")));
+
+			if (r.pattern == RandomPattern.CUSTOM) {
+				rows.add(pair((x, y, w) -> number(x, y, w, "gui.howtobuild.random.octaves", 1, 8, () -> r.octaves, v -> r.octaves = v,
+								"gui.howtobuild.random.octaves.tooltip"),
+						(x, y, w) -> number(x, y, w, "gui.howtobuild.random.contrast", 1, 100, () -> r.contrast, v -> r.contrast = v,
+								"gui.howtobuild.random.contrast.tooltip")));
+				rows.add(row((x, y, w) -> number(x, y, w, "gui.howtobuild.random.threshold", -100, 100, () -> r.threshold, v -> r.threshold = v,
+						"gui.howtobuild.random.threshold.tooltip")));
+			}
+		}
+
+		rows.add(header("gui.howtobuild.random.roles"));
+		MaterialRole[] roles = MaterialRole.values();
+
+		for (int i = 0; i < roles.length; i += 3) {
+			int start = i;
+			rows.add(row((x, y, w) -> {
+				int bw = (w - 8) / 3;
+
+				for (int k = 0; k < 3 && start + k < roles.length; k++) {
+					MaterialRole role = roles[start + k];
+					dynamicButton(x + k * (bw + 4), y, bw, () -> Component.literal(r.hasRole(role) ? "■ " : "□ ")
+							.append(Component.translatable("role.howtobuild." + role.key())), () -> r.toggleRole(role), "gui.howtobuild.random.roles.tooltip");
+				}
+			}));
+		}
+
+		rows.add(header("gui.howtobuild.random.edges"));
+		rows.add(pair((x, y, w) -> toggle(x, y, w, "gui.howtobuild.random.protect_edge", () -> r.protectEdge, v -> r.protectEdge = v,
+						"gui.howtobuild.random.protect_edge.tooltip", true),
+				(x, y, w) -> number(x, y, w, "gui.howtobuild.random.edge_variation", 0, 100, () -> r.edgeVariation, v -> r.edgeVariation = v,
+						"gui.howtobuild.random.edge_variation.tooltip")));
+
+		if (r.protectEdge) {
+			rows.add(new Row(24, (x, y, w) -> {
+				String edge = r.edgeBlock.isBlank() && !r.palette.isEmpty() ? r.palette.getFirst().block : r.edgeBlock;
+				text(x, y + 7, 70, Component.translatable("gui.howtobuild.random.edge_block").getString(), MUTED);
+				slot(x + 72, y, () -> stack(edge), edge, () -> pickBlock(id -> r.edgeBlock = id));
+				text(x + 96, y + 7, w - 96, () -> name(edge), () -> TEXT);
+			}));
+		}
+
+		rows.add(header("gui.howtobuild.random.symmetry"));
+		rows.add(pair((x, y, w) -> cycle(x, y, w, "gui.howtobuild.random.spiral", () -> r.symmetry, v -> r.symmetry = v, RandomSymmetry.values(),
+						"gui.howtobuild.random.spiral.tooltip", false),
+				(x, y, w) -> cycle(x, y, w, "gui.howtobuild.random.mirror", () -> r.mirror, v -> r.mirror = v, MirrorRandomisation.values(),
+						"gui.howtobuild.random.mirror.tooltip", false)));
+
+		rows.add(header("gui.howtobuild.random.breakdown"));
+		rows.addAll(materialCountRows(8, false));
+		return rows;
+	}
+
+	/** One palette entry: block (click to change), percentage, on / off and remove. */
+	private void paletteRow(List<RandomConfig.Entry> list, RandomConfig.Entry entry, int x, int y, int w) {
+		slot(x, y, () -> stack(entry.block), entry.block, () -> pickBlock(id -> entry.block = id));
+		int nameW = Math.max(40, w / 3);
+		text(x + 24, y + 7, nameW - 4, () -> name(entry.block), () -> entry.enabled ? TEXT : MUTED);
+		int fieldX = x + 24 + nameW;
+		int fieldW = w - (fieldX - x) - 48;
+		number(fieldX, y + 2, fieldW, "gui.howtobuild.random.percent", 0, 1000, () -> (int) Math.round(entry.weight), v -> entry.weight = v,
+				"gui.howtobuild.random.percent.tooltip");
+		dynamicButton(x + w - 46, y + 2, 22, () -> Component.literal(entry.enabled ? "✔" : "–"), () -> {
+			entry.enabled = !entry.enabled;
+			changed(false);
+		}, "gui.howtobuild.random.entry_enabled.tooltip");
+		button(x + w - 22, y + 2, 22, Component.literal("×"), () -> {
+			list.remove(entry);
+			changed(true);
+		}, "gui.howtobuild.random.remove.tooltip");
+	}
+
+	/** Opens the block selector; the chosen block id is passed on and the screen comes back. */
+	private void pickBlock(java.util.function.Consumer<String> onPick) {
+		minecraft.gui.setScreen(new BlockPickerScreen(this, MaterialRole.PRIMARY, ShapeKind.BLOCKS, entry -> {
+			onPick.accept(entry.id());
+			config().sanitize();
+			HowToBuildConfig.save();
+		}));
+	}
+
+	// ---- Terrain layers (Materials tab of the Terrain tool)
+
+	private List<Row> terrainLayerRows() {
+		HowToBuildConfig c = config();
+		List<Row> rows = new ArrayList<>();
+		rows.add(header("gui.howtobuild.terrain.layers"));
+		wrapNotes(rows, Component.translatable("gui.howtobuild.terrain.layers.help").getString(), MUTED);
+
+		for (int i = 0; i < c.terrainLayers.size(); i++) {
+			TerrainLayerConfig layer = c.terrainLayers.get(i);
+			int index = i;
+			rows.add(row((x, y, w) -> {
+				text(x, y + 6, 60, Component.translatable("gui.howtobuild.terrain.layer", index + 1).getString(), ACCENT);
+				number(x + 62, y, w - 62 - 72, "gui.howtobuild.terrain.thickness", 0, 256, () -> layer.thickness, v -> layer.thickness = v,
+						"gui.howtobuild.terrain.thickness.tooltip");
+				button(x + w - 70, y, 24, Component.literal("+"), () -> pickBlock(id -> layer.blocks.add(new RandomConfig.Entry(id, 20))),
+						"gui.howtobuild.terrain.add_block.tooltip");
+				button(x + w - 44, y, 22, Component.literal("↑"), () -> {
+					if (index > 0) {
+						c.terrainLayers.remove(index);
+						c.terrainLayers.add(index - 1, layer);
+						changed(true);
+					}
+				}, "gui.howtobuild.terrain.up.tooltip");
+				button(x + w - 22, y, 22, Component.literal("×"), () -> {
+					c.terrainLayers.remove(layer);
+					changed(true);
+				}, "gui.howtobuild.terrain.remove.tooltip");
+			}));
+
+			for (RandomConfig.Entry entry : layer.blocks) {
+				rows.add(new Row(24, (x, y, w) -> paletteRow(layer.blocks, entry, x + 8, y, w - 8)));
+			}
+		}
+
+		rows.add(pair((x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.terrain.add_layer"),
+						() -> pickBlock(id -> c.terrainLayers.add(new TerrainLayerConfig(1, new RandomConfig.Entry(id, 100)))),
+						"gui.howtobuild.terrain.add_layer.tooltip"),
+				(x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.terrain.reset_layers"), () -> {
+					c.terrainLayers = TerrainLayerConfig.defaults();
+					changed(true);
+				}, null)));
+		rows.add(row((x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.terrain.resample"), () -> BuildSession.get().resampleGround(),
+				"gui.howtobuild.terrain.resample.tooltip")));
+		return rows;
+	}
+
+	// ---- Build dashboard
+
+	/** Material list filters. */
+	enum MaterialFilter {
+		ALL,
+		BLOCKS,
+		SLABS,
+		STAIRS,
+		DETAILS,
+		STRUCTURAL,
+		ACCENT
+	}
+
+	private static MaterialFilter materialFilter = MaterialFilter.ALL;
+	private static boolean showBlockList;
+	private static String comparison = "";
+
+	/** Summary of what will be built: tool, size, centre, blocks, materials, details, randomisation, mirror, inset. */
+	private List<Row> dashboardRows() {
+		HowToBuildConfig c = config();
+		List<Row> rows = new ArrayList<>();
+		rows.add(header("gui.howtobuild.dashboard"));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> {
+			BuildSession.Resolved r = BuildSession.get().resolved();
+			Box b = r == null ? null : r.result().bounds();
+			String size = b == null ? "—" : b.sizeX() + " × " + b.sizeY() + " × " + b.sizeZ();
+			return Component.translatable("gui.howtobuild.dashboard.shape", Component.translatable(c.activeTool().translationKey()).getString(), size).getString();
+		}, () -> TEXT)));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> {
+			List<MaterialCounter.Count> counts = BuildSession.get().materialCounts();
+			return Component.translatable("gui.howtobuild.dashboard.blocks", MaterialCounter.total(counts), counts.size()).getString();
+		}, () -> TEXT)));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, this::centreLine, () -> MUTED)));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> {
+			GeometryResult g = BuildSession.get().geometry();
+			String details = Component.translatable("enum.howtobuild." + c.detailPreset.name().toLowerCase(Locale.ROOT)).getString();
+			String random = Component.translatable(c.random.enabled || c.activeTool().id().equals("randomise") ? "options.on" : "options.off").getString();
+			String mirror = Component.translatable(c.mirror.enabled ? "options.on" : "options.off").getString();
+			String text = Component.translatable("gui.howtobuild.dashboard.flags", details, random, mirror).getString();
+			Double inset = g == null ? null : g.values().get("inset");
+			return inset != null && inset > 0 ? text + " · " + Component.translatable("gui.howtobuild.dashboard.inset", inset.intValue()).getString() : text;
+		}, () -> MUTED)));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> {
+			java.util.Set<String> missing = BuildSession.get().resolved() == null ? java.util.Set.of() : BuildSession.get().resolved().missingBlocks();
+			return missing.isEmpty() ? "" : Component.translatable("gui.howtobuild.dashboard.missing", String.join(", ", missing)).getString();
+		}, () -> ERROR)));
+
+		rows.add(header("gui.howtobuild.dashboard.materials"));
+		rows.add(row((x, y, w) -> {
+			MaterialFilter[] filters = MaterialFilter.values();
+			int bw = (w - (filters.length - 1) * 2) / filters.length;
+
+			for (int i = 0; i < filters.length; i++) {
+				MaterialFilter f = filters[i];
+				Button b = button(x + i * (bw + 2), y, bw, Component.translatable("gui.howtobuild.filter." + f.name().toLowerCase(Locale.ROOT)), () -> {
+					materialFilter = f;
+					rebuild();
+				}, "gui.howtobuild.filter.tooltip");
+				b.active = f != materialFilter;
+			}
+		}));
+		rows.addAll(materialCountRows(64, true));
+		rows.add(pair((x, y, w) -> toggle(x, y, w, "gui.howtobuild.dashboard.block_list", () -> showBlockList, v -> showBlockList = v,
+						"gui.howtobuild.dashboard.block_list.tooltip", true),
+				(x, y, w) -> {
+					Button reset = button(x, y, w, Component.translatable("gui.howtobuild.dashboard.reset_replacements"), () -> {
+						c.materialOverrides.clear();
+						changed(true);
+					}, "gui.howtobuild.dashboard.reset_replacements.tooltip");
+					reset.active = !c.materialOverrides.isEmpty();
+				}));
+
+		if (showBlockList) {
+			for (MaterialCounter.Count count : filteredCounts(256)) {
+				for (var e : count.states().entrySet()) {
+					rows.add(note(e.getValue() + " × " + e.getKey(), MUTED));
+				}
+			}
+		}
+
+		rows.add(header("gui.howtobuild.dashboard.resources"));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, this::resourceLine, () -> resourceShortfall() > 0 ? WARNING : GOOD)));
+		rows.add(pair((x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.dashboard.compare"), () -> {
+					BuildLibrary.Comparison cmp = BuildLibrary.compare();
+					comparison = Component.translatable("gui.howtobuild.dashboard.comparison", cmp.correct(), cmp.missing(), cmp.incorrect(), cmp.extra()).getString();
+				}, "gui.howtobuild.dashboard.compare.tooltip"),
+				(x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.dashboard.save"), () -> setTab(Tab.BUILDS), "gui.howtobuild.dashboard.save.tooltip")));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> comparison, () -> TEXT)));
+		return rows;
+	}
+
+	/** Material counts that pass the current filter (most used first). */
+	private List<MaterialCounter.Count> filteredCounts(int limit) {
+		List<MaterialCounter.Count> all = BuildSession.get().materialCounts();
+		java.util.Map<String, EnumSet<MaterialRole>> roles = rolesByBlock();
+		List<MaterialCounter.Count> out = new ArrayList<>();
+
+		for (MaterialCounter.Count count : all) {
+			if (out.size() >= limit) break;
+
+			EnumSet<MaterialRole> r = roles.getOrDefault(count.block(), EnumSet.noneOf(MaterialRole.class));
+			boolean keep = switch (materialFilter) {
+				case ALL -> true;
+				case BLOCKS -> MaterialResolver.block(count.block()).filter(b -> !(b instanceof SlabBlock) && !(b instanceof StairBlock)).isPresent();
+				case SLABS -> MaterialResolver.block(count.block()).filter(b -> b instanceof SlabBlock).isPresent();
+				case STAIRS -> MaterialResolver.block(count.block()).filter(b -> b instanceof StairBlock).isPresent();
+				case DETAILS -> r.stream().anyMatch(role -> EnumSet.of(MaterialRole.TRIM, MaterialRole.ACCENT, MaterialRole.RAIL, MaterialRole.CAP,
+						MaterialRole.HIGHLIGHT, MaterialRole.OUTER_EDGE, MaterialRole.INNER_EDGE).contains(role));
+				case STRUCTURAL -> r.stream().anyMatch(role -> EnumSet.of(MaterialRole.PRIMARY, MaterialRole.SECONDARY, MaterialRole.SUPPORT, MaterialRole.STEP,
+						MaterialRole.FLOOR, MaterialRole.INNER).contains(role));
+				case ACCENT -> r.contains(MaterialRole.ACCENT) || r.contains(MaterialRole.HIGHLIGHT);
+			};
+
+			if (keep) out.add(count);
+		}
+
+		return out;
+	}
+
+	/** Which roles use each block in the current preview. */
+	private static java.util.Map<String, EnumSet<MaterialRole>> rolesByBlock() {
+		BuildSession.Resolved r = BuildSession.get().resolved();
+		java.util.Map<String, EnumSet<MaterialRole>> map = new java.util.HashMap<>();
+
+		if (r == null) return map;
+
+		List<com.howtobuild.geometry.Placement> placements = r.result().placements();
+
+		for (int i = 0; i < placements.size(); i++) {
+			String id = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(r.states()[i].getBlock()).toString();
+			map.computeIfAbsent(id, k -> EnumSet.noneOf(MaterialRole.class)).add(placements.get(i).role());
+		}
+
+		return map;
+	}
+
+	/** Rows with a 3D icon, name, exact count and share per material; with {@code replace}, clicking replaces it. */
+	private List<Row> materialCountRows(int limit, boolean replace) {
+		List<Row> rows = new ArrayList<>();
+		List<MaterialCounter.Count> counts = replace ? filteredCounts(limit) : BuildSession.get().materialCounts().stream().limit(limit).toList();
+		long total = MaterialCounter.total(BuildSession.get().materialCounts());
+
+		if (counts.isEmpty()) {
+			rows.add(note(Component.translatable("gui.howtobuild.dashboard.no_materials").getString(), MUTED));
+			return rows;
+		}
+
+		for (MaterialCounter.Count count : counts) {
+			rows.add(new Row(22, (x, y, w) -> {
+				slot(x, y, () -> stack(count.block()), count.block(), replace ? () -> replaceMaterial(count.block()) : () -> {
+				});
+				text(x + 24, y + 2, w - 24, name(count.block()) + "  " + count.count() + " (" + String.format(Locale.ROOT, "%.1f", count.percent(total)) + "%)", TEXT);
+				text(x + 24, y + 12, w - 24, stateSummary(count), MUTED);
+			}));
+		}
+
+		return rows;
+	}
+
+	/** "facing N 12 · E 10 … · half top 4 …": the state distribution of a material. */
+	private static String stateSummary(MaterialCounter.Count count) {
+		StringBuilder sb = new StringBuilder();
+
+		for (String property : List.of("facing", "half", "type", "axis", "shape", "waterlogged")) {
+			java.util.Map<String, Long> values = MaterialCounter.byProperty(count, property);
+
+			if (values.isEmpty() || values.size() == 1 && property.equals("waterlogged")) continue;
+			if (!sb.isEmpty()) sb.append(" · ");
+
+			sb.append(property);
+			values.forEach((v, n) -> sb.append(' ').append(v).append(' ').append(n));
+		}
+
+		return sb.isEmpty() ? count.states().size() + " state" + (count.states().size() == 1 ? "" : "s") : sb.toString();
+	}
+
+	/** Replaces a material everywhere in the preview, keeping facing, half, shape, type, waterlogged and other shared properties. */
+	private void replaceMaterial(String shownId) {
+		HowToBuildConfig c = config();
+		String original = c.materialOverrides.entrySet().stream().filter(e -> e.getValue().equals(shownId)).map(java.util.Map.Entry::getKey).findFirst()
+				.orElse(shownId);
+		pickBlock(id -> {
+			if (id.equals(original)) c.materialOverrides.remove(original);
+			else c.materialOverrides.put(original, id);
+		});
+	}
+
+	/** Blocks still needed from the inventory for a normal (by hand) build. */
+	private long resourceShortfall() {
+		if (config().build.method != BuildConfig.Method.NORMAL || minecraft.player == null) return 0;
+
+		java.util.Map<String, Long> have = new java.util.HashMap<>();
+		var inventory = minecraft.player.getInventory();
+
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			ItemStack stack = inventory.getItem(i);
+			net.minecraft.world.level.block.Block block = net.minecraft.world.level.block.Block.byItem(stack.getItem());
+
+			if (!stack.isEmpty() && block != net.minecraft.world.level.block.Blocks.AIR) {
+				have.merge(net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(block).toString(), (long) stack.getCount(), Long::sum);
+			}
+		}
+
+		long missing = 0;
+
+		for (MaterialCounter.Count count : BuildSession.get().materialCounts()) {
+			long need = 0;
+
+			for (var e : count.states().entrySet()) {
+				// A double slab is two slab items.
+				need += e.getKey().contains("type=double") ? 2 * e.getValue() : e.getValue();
+			}
+
+			missing += Math.max(0, need - have.getOrDefault(count.block(), 0L));
+		}
+
+		return missing;
+	}
+
+	private String resourceLine() {
+		if (config().build.method != BuildConfig.Method.NORMAL) {
+			CommandPlan plan = BuildSession.get().plan();
+			return Component.translatable("gui.howtobuild.dashboard.commands", plan.commands().size(), plan.blocks()).getString();
+		}
+
+		long missing = resourceShortfall();
+		return missing == 0 ? Component.translatable("gui.howtobuild.dashboard.resources_ok").getString()
+				: Component.translatable("gui.howtobuild.dashboard.resources_missing", missing).getString();
+	}
+
+	// ---- Saved builds
+
+	private static String saveName = "";
+	private static String saveDescription = "";
+	private static BuildLibrary.Source saveSource = BuildLibrary.Source.AS_SHOWN;
+	private static boolean saveProcedural;
+	private static String buildsStatus = "";
+	private static String pendingDelete = "";
+	private static boolean buildsListed;
+
+	/** The Builds tab: save the current preview (exact or as a procedural preset), and the list of saved builds. */
+	private List<Row> savedBuildRows() {
+		HowToBuildConfig c = config();
+		List<Row> rows = new ArrayList<>();
+
+		if (!buildsListed) {
+			buildsListed = true;
+			BuildLibrary.refresh(this::rebuildIfOpen);
+		}
+
+		rows.add(header("gui.howtobuild.builds.save"));
+		rows.add(row((x, y, w) -> textField(x, y, w, "gui.howtobuild.builds.name", 64, () -> saveName, v -> saveName = v)));
+		rows.add(row((x, y, w) -> textField(x, y, w, "gui.howtobuild.builds.description", 128, () -> saveDescription, v -> saveDescription = v)));
+		rows.add(row((x, y, w) -> textField(x, y, w, "gui.howtobuild.builds.author", 64, () -> c.author, v -> c.author = v)));
+		rows.add(pair((x, y, w) -> cycle(x, y, w, "gui.howtobuild.builds.source", () -> saveSource, v -> saveSource = v, BuildLibrary.Source.values(),
+						"gui.howtobuild.builds.source.tooltip", false),
+				(x, y, w) -> dynamicButton(x, y, w, () -> Component.translatable(saveProcedural ? "gui.howtobuild.builds.procedural" : "gui.howtobuild.builds.exact"),
+						() -> saveProcedural = !saveProcedural, "gui.howtobuild.builds.kind.tooltip")));
+		rows.add(row((x, y, w) -> dynamicButton(x, y, w, () -> Component.translatable(BuildLibrary.names().stream().anyMatch(n -> n.equalsIgnoreCase(fileStem(saveName)))
+				? "gui.howtobuild.builds.overwrite" : "gui.howtobuild.builds.save_button"), this::saveBuild, "gui.howtobuild.builds.save_button.tooltip")));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> buildsStatus, () -> buildsStatus.startsWith("⚠") ? WARNING : GOOD)));
+
+		rows.add(header("gui.howtobuild.builds.list"));
+		rows.add(pair((x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.builds.refresh"), () -> BuildLibrary.refresh(this::rebuildIfOpen), null),
+				(x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.builds.folder"), () -> {
+					try {
+						java.nio.file.Files.createDirectories(BuildLibrary.directory());
+						net.minecraft.util.Util.getPlatform().openPath(BuildLibrary.directory());
+					} catch (java.io.IOException | RuntimeException e) {
+						buildsStatus = "⚠ " + BuildLibrary.directory();
+					}
+				}, "gui.howtobuild.builds.folder.tooltip")));
+		List<String> names = BuildLibrary.names();
+
+		if (names.isEmpty()) wrapNotes(rows, Component.translatable("gui.howtobuild.builds.empty", BuildLibrary.directory().toString()).getString(), MUTED);
+
+		for (String name : names) {
+			rows.add(new Row(34, (x, y, w) -> {
+				BuildLibrary.Info info = BuildLibrary.info(name);
+				text(x, y + 1, w - 110, name, ACCENT);
+				text(x, y + 12, w - 110, () -> infoLine(BuildLibrary.info(name)), () -> info != null && !info.ok() ? ERROR : MUTED);
+				Button load = button(x + w - 108, y + 4, 52, Component.translatable("gui.howtobuild.builds.load"), () -> {
+					String error = BuildLibrary.load(name);
+					buildsStatus = error == null ? Component.translatable("gui.howtobuild.builds.loaded", name).getString() : "⚠ " + error;
+					scroll = 0;
+					rebuild();
+				}, "gui.howtobuild.builds.load.tooltip");
+				load.active = info == null || info.ok();
+				button(x + w - 54, y + 4, 54, Component.translatable(pendingDelete.equals(name) ? "gui.howtobuild.builds.confirm_delete" : "gui.howtobuild.builds.delete"),
+						() -> {
+							if (!pendingDelete.equals(name)) {
+								pendingDelete = name;
+								rebuild();
+								return;
+							}
+
+							pendingDelete = "";
+							BuildLibrary.delete(name, () -> {
+								buildsStatus = Component.translatable("gui.howtobuild.builds.deleted", name).getString();
+								rebuildIfOpen();
+							});
+						}, "gui.howtobuild.builds.delete.tooltip");
+			}));
+		}
+
+		return rows;
+	}
+
+	private static String infoLine(BuildLibrary.Info info) {
+		if (info == null) return Component.translatable("gui.howtobuild.builds.reading").getString();
+		if (!info.ok()) return "⚠ " + info.error();
+
+		var f = info.file();
+
+		if (f.procedural()) {
+			return Component.translatable("gui.howtobuild.builds.preset_info", Component.translatable("tool.howtobuild." + f.tool()).getString(),
+					String.format(Locale.ROOT, "%.1f", info.fileSize() / 1024.0)).getString();
+		}
+
+		int[] size = f.size();
+		return Component.translatable("gui.howtobuild.builds.info", size[0] + " × " + size[1] + " × " + size[2], f.blockCount(), f.palette().size(),
+				String.format(Locale.ROOT, "%.1f", info.fileSize() / 1024.0)).getString();
+	}
+
+	private static String fileStem(String name) {
+		String file = com.howtobuild.saves.HwbCodec.fileName(name);
+		return file.substring(0, file.length() - com.howtobuild.saves.HwbCodec.EXTENSION.length());
+	}
+
+	private void saveBuild() {
+		String name = saveName.isBlank() ? Component.translatable(config().activeTool().translationKey()).getString() : saveName.trim();
+		var file = BuildLibrary.capture(name, saveDescription, saveSource, saveProcedural);
+
+		if (file == null) {
+			buildsStatus = "⚠ " + Component.translatable("gui.howtobuild.builds.nothing").getString();
+			return;
+		}
+
+		buildsStatus = Component.translatable("gui.howtobuild.builds.saving").getString();
+		BuildLibrary.save(fileStem(name), file, error -> {
+			buildsStatus = error == null ? Component.translatable("gui.howtobuild.builds.saved", fileStem(name), file.blockCount()).getString() : "⚠ " + error;
+			BuildLibrary.refresh(this::rebuildIfOpen);
+		});
+	}
+
+	private void rebuildIfOpen() {
+		if (minecraft != null && minecraft.gui.screen() == this) rebuild();
+	}
+
+	/** A labelled single-line text field. */
+	private void textField(int x, int y, int w, String labelKey, int maxLength, java.util.function.Supplier<String> get, java.util.function.Consumer<String> set) {
+		String label = Component.translatable(labelKey).getString();
+		int labelW = Math.min(w / 3, font.width(label) + 6);
+		text(x, y + 6, labelW - 4, label, MUTED);
+		EditBox box = new EditBox(font, x + labelW, y, w - labelW, CONTROL_HEIGHT, Component.translatable(labelKey));
+		box.setMaxLength(maxLength);
+		box.setValue(get.get());
+		box.setResponder(set);
+		var tip = tooltip(labelKey + ".tooltip");
+
+		if (tip != null) box.setTooltip(tip);
+
+		widget(box);
+	}
+
+	// ----------------------------------------------------------------- preview pane
+
+	private int paneX;
+	private int paneY;
+	private int paneSize;
+	private Object paneKey;
+	private int paneCells;
+	private int[] paneColours = new int[0];
+	private Object seenResolved;
+
+	/**
+	 * The third column on wide screens: a top-down map of the preview (each column coloured by its top block) and a
+	 * short summary, so the shape can be checked while the world view is busy.
+	 */
+	private void buildPreviewPane(int x, int top, int w, int bottom) {
+		paneSize = 0;
+
+		if (w < 120) return;
+
+		if (!config().previewPane) {
+			toggle(x, top, w, "gui.howtobuild.preview_pane.show", () -> config().previewPane, v -> config().previewPane = v,
+					"gui.howtobuild.preview_pane.show.tooltip", true);
+			return;
+		}
+
+		paneX = x;
+		paneY = top + 14;
+		paneSize = Math.min(w, Math.max(80, bottom - top - 90));
+		panel(x - 4, top - 4, x + w + 4, paneY + paneSize + 76);
+		text(x, top, w, Component.translatable("gui.howtobuild.preview_pane").getString(), ACCENT);
+		int y = paneY + paneSize + 4;
+		text(x, y, w, () -> {
+			BuildSession.Resolved r = BuildSession.get().resolved();
+			Box b = r == null ? null : r.result().bounds();
+			return b == null ? "—" : b.sizeX() + " × " + b.sizeY() + " × " + b.sizeZ();
+		}, () -> TEXT);
+		text(x, y + 11, w, () -> {
+			List<MaterialCounter.Count> counts = BuildSession.get().materialCounts();
+			return Component.translatable("gui.howtobuild.dashboard.blocks", MaterialCounter.total(counts), counts.size()).getString();
+		}, () -> MUTED);
+		text(x, y + 22, w, () -> {
+			HowToBuildConfig c = config();
+			return Component.translatable("gui.howtobuild.preview_pane.flags",
+					Component.translatable(c.random.enabled ? "options.on" : "options.off").getString(),
+					Component.translatable(c.mirror.enabled ? "options.on" : "options.off").getString()).getString();
+		}, () -> MUTED);
+		text(x, y + 33, w, () -> BuildSession.get().isGenerating() ? Component.translatable("gui.howtobuild.status.updating").getString() : "", () -> WARNING);
+		toggle(x, y + 46, w, "gui.howtobuild.preview_pane.show", () -> config().previewPane, v -> config().previewPane = v,
+				"gui.howtobuild.preview_pane.show.tooltip", true);
+	}
+
+	/** Top block colour per column, downsampled to at most 96 × 96 cells (cached per resolved preview). */
+	private void updatePaneColours() {
+		BuildSession.Resolved r = BuildSession.get().resolved();
+
+		if (r == paneKey) return;
+
+		paneKey = r;
+		Box b = r == null ? null : r.result().bounds();
+
+		if (b == null) {
+			paneCells = 0;
+			return;
+		}
+
+		int extent = Math.max(b.sizeX(), b.sizeZ());
+		int step = Math.max(1, (extent + 95) / 96);
+		paneCells = (extent + step - 1) / step;
+		paneColours = new int[paneCells * paneCells];
+		int[] topY = new int[paneColours.length];
+		java.util.Arrays.fill(topY, Integer.MIN_VALUE);
+		List<com.howtobuild.geometry.Placement> placements = r.result().placements();
+		int offX = b.minX() - (paneCells * step - b.sizeX()) / 2;
+		int offZ = b.minZ() - (paneCells * step - b.sizeZ()) / 2;
+
+		for (int i = 0; i < placements.size(); i++) {
+			var p = placements.get(i);
+			int u = Math.floorDiv(p.x() - offX, step);
+			int v = Math.floorDiv(p.z() - offZ, step);
+
+			if (u < 0 || v < 0 || u >= paneCells || v >= paneCells) continue;
+
+			int cell = v * paneCells + u;
+
+			if (p.y() >= topY[cell]) {
+				topY[cell] = p.y();
+				int rgb = MaterialResolver.tint(r.states()[i]);
+				paneColours[cell] = 0xFF000000 | (p.mirrored() ? blendHalf(rgb, 0xC890FF) : rgb);
+			}
+		}
+	}
+
+	private static int blendHalf(int a, int b) {
+		return ((a >> 1) & 0x7F7F7F) + ((b >> 1) & 0x7F7F7F);
+	}
+
+	private void drawPreviewPane(GuiGraphicsExtractor graphics) {
+		if (paneSize <= 0) return;
+
+		updatePaneColours();
+		graphics.fill(paneX, paneY, paneX + paneSize, paneY + paneSize, 0xFF0B1216);
+
+		if (paneCells == 0) return;
+
+		float cell = (float) paneSize / paneCells;
+
+		for (int v = 0; v < paneCells; v++) {
+			for (int u = 0; u < paneCells; u++) {
+				int colour = paneColours[v * paneCells + u];
+
+				if (colour == 0) continue;
+
+				int x0 = paneX + Math.round(u * cell);
+				int y0 = paneY + Math.round(v * cell);
+				graphics.fill(x0, y0, Math.max(x0 + 1, paneX + Math.round((u + 1) * cell)), Math.max(y0 + 1, paneY + Math.round((v + 1) * cell)), colour);
+			}
+		}
+	}
+
+	/** Lists that show counts follow the preview: rebuild them when it changes. */
+	@Override
+	public void tick() {
+		super.tick();
+		Object current = BuildSession.get().resolved();
+
+		if (current != seenResolved) {
+			seenResolved = current;
+
+			if (tab() == Tab.BUILD || tab() == Tab.RANDOMISE) rebuild();
+		}
 	}
 
 	// ----------------------------------------------------------------- status & bottom bar
@@ -1054,6 +1771,7 @@ public final class HowToBuildScreen extends BaseScreen {
 	@Override
 	protected void drawBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
 		hoverInfo = "";
+		drawPreviewPane(graphics);
 
 		for (int i = 0; i < slots.size(); i++) {
 			int[] s = slots.get(i);

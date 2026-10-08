@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 
 import com.howtobuild.geometry.GeometryBuilder;
+import com.howtobuild.geometry.GeometryResult;
 import com.howtobuild.geometry.MaterialRef;
 import com.howtobuild.geometry.Placement;
 import com.howtobuild.geometry.Voxels;
@@ -71,6 +72,34 @@ public final class Randomiser {
 		}
 
 		assign(builder, pool, settings, planeNormalAxis);
+	}
+
+	/**
+	 * Mirror randomisation <i>Independent</i>: the mirrored copies of randomised blocks get their own arrangement (a
+	 * derived seed) instead of repeating the original's. With <i>Mirrored</i> (default) the result is returned as is.
+	 */
+	public static GeometryResult randomiseMirrored(GeometryResult mirrored, RandomSettings settings) {
+		if (!settings.active() || settings.mirror() != MirrorRandomisation.INDEPENDENT) return mirrored;
+
+		GeometryBuilder builder = new GeometryBuilder();
+		builder.replaceMaterials(mirrored.materials());
+		mirrored.placements().forEach(builder::put);
+		builder.groups().putAll(mirrored.groups());
+		List<Placement> pool = new ArrayList<>();
+
+		for (Placement p : mirrored.placements()) {
+			MaterialRef ref = mirrored.material(p);
+
+			if (p.mirrored() && ref != null && !ref.exact() && settings.roles().contains(p.role())) pool.add(p);
+		}
+
+		if (pool.isEmpty()) return mirrored;
+
+		pool.sort(GeometryResult.ORDER);
+		assign(builder, pool, settings.withSeed(settings.seed() * 31 + 0x4D49), mirrored.planeNormalAxis());
+		return new GeometryResult(mirrored.toolId(), builder.snapshot(), mirrored.centreCells(), mirrored.values(), mirrored.warnings(),
+				mirrored.planeNormalAxis()).withGuides(mirrored.guides()).withMaterials(builder.materials()).withGroups(mirrored.groups())
+				.withAnnotations(mirrored.annotations());
 	}
 
 	/**

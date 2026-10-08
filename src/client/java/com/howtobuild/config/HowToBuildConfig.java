@@ -32,6 +32,8 @@ import com.howtobuild.geometry.MaterialRole;
 import com.howtobuild.geometry.ShapeKind;
 import com.howtobuild.tools.BuildTool;
 import com.howtobuild.tools.GenerationContext;
+import com.howtobuild.tools.HeightMap;
+import com.howtobuild.tools.Palettes;
 import com.howtobuild.tools.ToolRegistry;
 import com.howtobuild.tools.ToolSettings;
 import com.howtobuild.tools.capability.Detailable;
@@ -51,6 +53,8 @@ public final class HowToBuildConfig {
 	public List<String> favorites = new ArrayList<>(List.of("circle", "spiral"));
 	/** GUI sections the player collapsed (by section key). */
 	public List<String> collapsedSections = new ArrayList<>();
+	/** Show the top-down preview pane on wide screens. */
+	public boolean previewPane = true;
 
 	// Per-tool parameter values (raw strings, sanitised against each tool's parameter definitions).
 	public Map<String, Map<String, String>> toolSettings = new LinkedHashMap<>();
@@ -77,6 +81,14 @@ public final class HowToBuildConfig {
 	public long seed = 1;
 
 	public Map<MaterialRole, MaterialSlot> materials = defaultMaterials();
+	/** Build tab → replace material: block id → replacement block id (properties both blocks share are kept). */
+	public Map<String, String> materialOverrides = new LinkedHashMap<>();
+	/** Randomise tab. */
+	public RandomConfig random = new RandomConfig();
+	/** Terrain material layers, top first. */
+	public List<TerrainLayerConfig> terrainLayers = TerrainLayerConfig.defaults();
+	/** Author written into saved builds. */
+	public String author = "";
 	public LabelSettings labels = new LabelSettings();
 	public MirrorConfig mirror = new MirrorConfig();
 	public BuildConfig build = new BuildConfig();
@@ -205,6 +217,14 @@ public final class HowToBuildConfig {
 			}
 		}
 
+		if (materialOverrides == null) materialOverrides = new LinkedHashMap<>();
+		materialOverrides.entrySet().removeIf(e -> e.getKey() == null || e.getValue() == null || e.getValue().isBlank());
+		if (random == null) random = new RandomConfig();
+		random.sanitize();
+		if (terrainLayers == null || terrainLayers.isEmpty()) terrainLayers = TerrainLayerConfig.defaults();
+		terrainLayers.removeIf(java.util.Objects::isNull);
+		terrainLayers.forEach(TerrainLayerConfig::sanitize);
+		if (author == null) author = "";
 		if (labels == null) labels = new LabelSettings();
 		labels.sanitize();
 		if (mirror == null) mirror = new MirrorConfig();
@@ -286,7 +306,8 @@ public final class HowToBuildConfig {
 
 	public GenerationContext generationContext(BuildTool t) {
 		DetailSettings details = new DetailSettings(detailFeatures(t), detailInterval, pattern, patternSize, variation, seed);
-		return new GenerationContext(materialTypeSet(), details, slabMode, alignX, alignY, alignZ, rotation);
+		Palettes palettes = new Palettes(random.toSettings(), terrainLayers.stream().map(TerrainLayerConfig::toLayer).toList(), HeightMap.NONE);
+		return new GenerationContext(materialTypeSet(), details, slabMode, alignX, alignY, alignZ, rotation, palettes);
 	}
 
 	/** Serialises the parts of the config that make up a preset. */
