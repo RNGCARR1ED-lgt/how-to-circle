@@ -33,10 +33,10 @@ class PipelineTest {
 					assertTrue(d.supportedDetails().containsAll(features), tool.id() + " " + preset + " only uses supported details");
 				}
 
-				GenerationContext ctx = GenerationContext.DEFAULT.withMaterialTypes(EnumSet.allOf(ShapeKind.class))
-						.withDetails(DetailSettings.NONE.withFeatures(features.isEmpty() ? EnumSet.noneOf(DetailFeature.class) : EnumSet.copyOf(features)));
-				GeometryResult a = GeometryPipeline.generate(tool, tool.defaults(), ctx);
-				GeometryResult b = GeometryPipeline.generate(tool, tool.defaults(), ctx);
+				GenerationContext ctx = TestShapes.randomised(GenerationContext.DEFAULT.withMaterialTypes(EnumSet.allOf(ShapeKind.class))
+						.withDetails(DetailSettings.NONE.withFeatures(features.isEmpty() ? EnumSet.noneOf(DetailFeature.class) : EnumSet.copyOf(features))));
+				GeometryResult a = GeometryPipeline.generate(tool, TestShapes.defaults(tool), ctx);
+				GeometryResult b = GeometryPipeline.generate(tool, TestShapes.defaults(tool), ctx);
 				assertFalse(a.isEmpty(), tool.id() + " " + preset + ": " + a.warnings());
 				assertEquals(a.placements(), b.placements(), "deterministic");
 				Set<Long> keys = new HashSet<>();

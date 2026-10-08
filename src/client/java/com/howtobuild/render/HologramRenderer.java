@@ -17,6 +17,7 @@ import com.howtobuild.client.BuildSession;
 import com.howtobuild.config.HowToBuildConfig;
 import com.howtobuild.config.LabelSettings;
 import com.howtobuild.geometry.Box;
+import com.howtobuild.geometry.Guide;
 import com.howtobuild.input.CentreSelectionHandler;
 
 /**
@@ -233,10 +234,10 @@ public final class HologramRenderer {
 
 		/** Reference outline cells (e.g. the master circle a spiral follows): thin squares on the floor of each cell. */
 		void guides(List<int[]> cells) {
-			int fill = ARGB.color(40, ARGB.red(GUIDE_COLOR), ARGB.green(GUIDE_COLOR), ARGB.blue(GUIDE_COLOR));
-			int edge = ARGB.color(220, ARGB.red(GUIDE_COLOR), ARGB.green(GUIDE_COLOR), ARGB.blue(GUIDE_COLOR));
-
 			for (int[] c : cells) {
+				int rgb = guideColor(c.length > 3 ? c[3] : Guide.OUTLINE);
+				int fill = ARGB.color(40, ARGB.red(rgb), ARGB.green(rgb), ARGB.blue(rgb));
+				int edge = ARGB.color(220, ARGB.red(rgb), ARGB.green(rgb), ARGB.blue(rgb));
 				float y = c[1] + 0.02F;
 				flat(0, c[0], c[0] + 1, 2, c[2], c[2] + 1, 1, y, fill);
 				flat(0, c[0], c[0] + 1, 2, c[2], c[2] + 0.06F, 1, y, edge);
@@ -244,6 +245,17 @@ public final class HologramRenderer {
 				flat(0, c[0], c[0] + 0.06F, 2, c[2], c[2] + 1, 1, y, edge);
 				flat(0, c[0] + 0.94F, c[0] + 1, 2, c[2], c[2] + 1, 1, y, edge);
 			}
+		}
+
+		/** Guide colours: master outline, protected area (red), region boundary (yellow), contours (pale blue), inset (green). */
+		static int guideColor(int kind) {
+			return switch (kind) {
+				case Guide.PROTECTED -> 0xFF4D4D;
+				case Guide.BOUNDARY -> 0xFFD24D;
+				case Guide.CONTOUR -> 0x9BE7FF;
+				case Guide.INSET -> 0x6BE08A;
+				default -> GUIDE_COLOR;
+			};
 		}
 
 		/** Translucent sheets showing where each mirror plane lies, spanning the preview's height and extent. */

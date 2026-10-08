@@ -11,12 +11,15 @@ import org.jspecify.annotations.Nullable;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 import com.howtobuild.HowToBuild;
 import com.howtobuild.commands.CommandPlan;
 import com.howtobuild.commands.CommandPlanner;
+import com.howtobuild.commands.MaterialCounter;
 import com.howtobuild.commands.StatePlacement;
 import com.howtobuild.config.HowToBuildConfig;
 import com.howtobuild.config.MaterialSlot;
@@ -25,12 +28,16 @@ import com.howtobuild.geometry.MaterialRole;
 import com.howtobuild.geometry.Placement;
 import com.howtobuild.geometry.WorldTransform;
 import com.howtobuild.materials.MaterialResolver;
+import com.howtobuild.palette.Randomiser;
 import com.howtobuild.render.LabelSet;
 import com.howtobuild.render.RenderMesh;
 import com.howtobuild.tools.BuildTool;
 import com.howtobuild.tools.GenerationContext;
 import com.howtobuild.tools.GeometryPipeline;
+import com.howtobuild.tools.HeightMap;
+import com.howtobuild.tools.ToolRegistry;
 import com.howtobuild.tools.ToolSettings;
+import com.howtobuild.tools.impl.TerrainTool;
 import com.howtobuild.transform.MirrorSettings;
 import com.howtobuild.transform.MirrorTransform;
 
@@ -78,6 +85,11 @@ public final class BuildSession {
 	private @Nullable LabelSet labels;
 	private @Nullable Object planKey;
 	private @Nullable CommandPlan plan;
+	private @Nullable Object countKey;
+	private List<MaterialCounter.Count> counts = List.of();
+	private @Nullable Object heightKey;
+	private HeightMap heights = HeightMap.NONE;
+	private int heightRevision;
 	private final ProgressTracker progress = new ProgressTracker();
 	private int revision;
 	private long generatedAt;
@@ -87,7 +99,7 @@ public final class BuildSession {
 	 * doubled mirror plane coordinates relative to the anchor (see {@link MirrorTransform#planeDoubled}).
 	 */
 	public record Resolved(GeometryResult result, BlockPos origin, WorldTransform transform, BlockState[] states, boolean[] buildable,
-			MirrorSettings mirror, int mirrorPlaneX, int mirrorPlaneZ) {
+			MirrorSettings mirror, int mirrorPlaneX, int mirrorPlaneZ, java.util.Set<String> missingBlocks) {
 		/** World position of placement {@code i}. */
 		public BlockPos worldPos(int i) {
 			Placement p = result.placements().get(i);
@@ -188,7 +200,11 @@ public final class BuildSession {
 	public void tick() {
 		HowToBuildConfig config = HowToBuildConfig.get();
 		BuildTool tool = config.activeTool();
-		GenerationKey key = new GenerationKey(tool.id(), config.settings(tool), config.generationContext(tool));
+		GenerationContext context = config.generationContext(tool);
+
+		if (tool instanceof TerrainTool) context = context.withPalettes(context.palettes().withHeights(heightSnapshot(config.settings(tool), context)));
+
+		GenerationKey key = new GenerationKey(tool.id(), config.settings(tool), context);
 
 		if (!key.equals(requested)) {
 			requested = key;
@@ -230,6 +246,46 @@ public final class BuildSession {
 		}
 	}
 
+	/**
+	 * The existing ground around the centre, for terrain blending: the top solid block of every column (relative to the
+	 * centre's Y, in the tool's unrotated coordinates). Taken once per centre / size / rotation, not every tick, so a
+	 * terrain that was just built does not feed back into its own preview; {@link #resampleGround()} takes it again.
+	 */
+	private HeightMap heightSnapshot(ToolSettings s, GenerationContext ctx) {
+		WorldTransform t = transform();
+		ClientLevel world = Minecraft.getInstance().level;
+
+		if (t == null || world == null) return HeightMap.NONE;
+
+		int half = Math.max(s.getInt("width"), s.has("length") ? s.getInt("length") : 0) / 2 + 4;
+		Object key = List.of(t.originX(), t.originY(), t.originZ(), half, ctx.rotation(), System.identityHashCode(world), heightRevision);
+
+		if (key.equals(heightKey)) return heights;
+
+		int size = 2 * half + 1;
+		int[] h = new int[size * size];
+
+		for (int v = 0; v < size; v++) {
+			for (int u = 0; u < size; u++) {
+				int[] r = GeometryPipeline.rotateXZ(u - half, v - half, ctx.rotation());
+				int wx = t.originX() + r[0];
+				int wz = t.originZ() + r[1];
+				h[v * size + u] = world.getChunkSource().hasChunk(wx >> 4, wz >> 4)
+						? world.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, wx, wz) - 1 - t.originY()
+						: HeightMap.UNKNOWN;
+			}
+		}
+
+		heights = new HeightMap(-half, -half, size, size, h);
+		heightKey = key;
+		return heights;
+	}
+
+	/** Samples the ground under a terrain preview again (e.g. after the surroundings changed). */
+	public void resampleGround() {
+		heightRevision++;
+	}
+
 	public boolean isGenerating() {
 		return pending != null;
 	}
@@ -267,26 +323,33 @@ public final class BuildSession {
 			slots.add(config.materials.get(role).copy());
 		}
 
-		Object key = List.of(geometry, origin, mirror, mirrorAt, slots);
+		Object key = List.of(geometry, origin, mirror, mirrorAt, slots, new java.util.LinkedHashMap<>(config.materialOverrides));
 
 		if (!key.equals(resolvedKey) || resolved == null) {
 			int centreX = mirrorAt.getX() - origin.getX();
 			int centreZ = mirrorAt.getZ() - origin.getZ();
 			GeometryResult result = MirrorTransform.apply(geometry, mirror, centreX, centreZ);
-			MaterialResolver resolver = new MaterialResolver(config.materials);
+
+			if (geometryKey != null && mirror.enabled()) {
+				BuildTool tool = ToolRegistry.get(geometryKey.tool());
+				result = Randomiser.randomiseMirrored(result, tool.randomisation(geometryKey.settings(), geometryKey.context()));
+			}
+
+			MaterialResolver resolver = new MaterialResolver(config.materials, config.materialOverrides);
 			List<Placement> placements = result.placements();
 			BlockState[] states = new BlockState[placements.size()];
 			boolean[] buildable = new boolean[placements.size()];
 
 			for (int i = 0; i < states.length; i++) {
 				Placement p = placements.get(i);
-				states[i] = resolver.resolve(p);
-				buildable[i] = !p.mirrored() || mirror.mode().buildsMirror();
+				states[i] = resolver.resolve(p, result.materials());
+				// Placeholders for blocks missing from this game are shown but never built.
+				buildable[i] = (!p.mirrored() || mirror.mode().buildsMirror()) && !resolver.isMissing(p, result.materials());
 			}
 
 			resolved = new Resolved(result, origin, transform, states, buildable, mirror,
 					MirrorTransform.planeDoubled(centreX, mirror.twoWideX(), mirror.alignX(), mirror.offsetX()),
-					MirrorTransform.planeDoubled(centreZ, mirror.twoWideZ(), mirror.alignZ(), mirror.offsetZ()));
+					MirrorTransform.planeDoubled(centreZ, mirror.twoWideZ(), mirror.alignZ(), mirror.offsetZ()), java.util.Set.copyOf(resolver.missing()));
 			resolvedKey = key;
 			progress.reset();
 		}
@@ -354,6 +417,31 @@ public final class BuildSession {
 		}
 
 		return plan;
+	}
+
+	/**
+	 * Exact material requirements of what would be built (mirror included, missing blocks excluded): one entry per block
+	 * with the count of every exact state, sorted by count. Taken from the resolved states, so it always matches the
+	 * hologram and the commands.
+	 */
+	public List<MaterialCounter.Count> materialCounts() {
+		Resolved r = resolved();
+
+		if (r == null) return List.of();
+
+		if (r != countKey) {
+			MaterialResolver resolver = new MaterialResolver(HowToBuildConfig.get().materials);
+			List<String> states = new ArrayList<>();
+
+			for (int i = 0; i < r.states().length; i++) {
+				if (r.buildable()[i]) states.add(resolver.commandString(r.states()[i]));
+			}
+
+			counts = MaterialCounter.count(states);
+			countKey = r;
+		}
+
+		return counts;
 	}
 
 	public ProgressTracker progress() {

@@ -24,6 +24,11 @@ public final class GeometryResult {
 	private final List<Placement> placements;
 	private final List<int[]> centreCells;
 	private List<int[]> guides = List.of();
+	private List<MaterialRef> materials = List.of();
+	private it.unimi.dsi.fastutil.longs.Long2IntMap groups = it.unimi.dsi.fastutil.longs.Long2IntMaps.EMPTY_MAP;
+	private List<Annotation> annotations = List.of();
+	private it.unimi.dsi.fastutil.longs.LongSet region = it.unimi.dsi.fastutil.longs.LongSets.EMPTY_SET;
+	private it.unimi.dsi.fastutil.longs.LongSet protectedColumns = it.unimi.dsi.fastutil.longs.LongSets.EMPTY_SET;
 	private final Map<String, Double> values;
 	private final List<String> warnings;
 	private final Box bounds;
@@ -56,7 +61,67 @@ public final class GeometryResult {
 
 	public static GeometryResult of(String toolId, GeometryBuilder builder, int planeNormalAxis) {
 		return new GeometryResult(toolId, builder.snapshot(), builder.centreCells(), builder.values(), builder.warnings(), planeNormalAxis)
-				.withGuides(builder.guides());
+				.withGuides(builder.guides())
+				.withMaterials(builder.materials())
+				.withGroups(builder.groups())
+				.withAnnotations(builder.annotations())
+				.withRegions(builder.region(), builder.protectedColumns());
+	}
+
+	/** Declared region and protected columns (packed (x, 0, z)); empty when the tool declares none. */
+	public GeometryResult withRegions(it.unimi.dsi.fastutil.longs.LongSet regionColumns, it.unimi.dsi.fastutil.longs.LongSet protectedSet) {
+		this.region = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(regionColumns);
+		this.protectedColumns = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(protectedSet);
+		return this;
+	}
+
+	public it.unimi.dsi.fastutil.longs.LongSet region() {
+		return region;
+	}
+
+	public it.unimi.dsi.fastutil.longs.LongSet protectedColumns() {
+		return protectedColumns;
+	}
+
+	/** The same result with this material list ({@link Placement#material()} indexes into it). */
+	public GeometryResult withMaterials(List<MaterialRef> refs) {
+		this.materials = List.copyOf(refs);
+		return this;
+	}
+
+	/** Materials referenced by {@link Placement#material()}: palette blocks or exact saved states. */
+	public List<MaterialRef> materials() {
+		return materials;
+	}
+
+	/** The material a placement overrides its role with, or {@code null}. */
+	public MaterialRef material(Placement p) {
+		return p.material() >= 0 && p.material() < materials.size() ? materials.get(p.material()) : null;
+	}
+
+	public GeometryResult withGroups(it.unimi.dsi.fastutil.longs.Long2IntMap groupIds) {
+		this.groups = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap(groupIds);
+		return this;
+	}
+
+	/** Group ids per packed position (e.g. spiral step), used for grouped randomisation. */
+	public it.unimi.dsi.fastutil.longs.Long2IntMap groups() {
+		return groups;
+	}
+
+	public GeometryResult withAnnotations(List<Annotation> notes) {
+		this.annotations = List.copyOf(notes);
+		return this;
+	}
+
+	/** Positioned label texts (e.g. contour heights). */
+	public List<Annotation> annotations() {
+		return annotations;
+	}
+
+	/** A copy of this result's extras (guides, materials, groups, annotations) on another result. */
+	public GeometryResult copyExtrasTo(GeometryResult other) {
+		return other.withGuides(guides).withMaterials(materials).withGroups(groups).withAnnotations(annotations).withRegions(region, protectedColumns);
 	}
 
 	/** The same result with reference guide cells (drawn, never built). */

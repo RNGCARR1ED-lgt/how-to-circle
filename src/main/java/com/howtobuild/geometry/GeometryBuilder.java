@@ -19,6 +19,12 @@ public final class GeometryBuilder {
 	private final Map<String, Double> values = new LinkedHashMap<>();
 	private final List<int[]> centreCells = new ArrayList<>();
 	private final List<int[]> guides = new ArrayList<>();
+	private final List<MaterialRef> materials = new ArrayList<>();
+	private final java.util.Map<MaterialRef, Integer> materialIndex = new java.util.HashMap<>();
+	private final it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap groups = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap();
+	private final List<Annotation> annotations = new ArrayList<>();
+	private final it.unimi.dsi.fastutil.longs.LongOpenHashSet region = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+	private final it.unimi.dsi.fastutil.longs.LongOpenHashSet protectedColumns = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
 
 	public void set(int x, int y, int z, MaterialRole role, BlockShape shape) {
 		cells.put(Voxels.pack(x, y, z), new Placement(x, y, z, role, shape, 0, false));
@@ -114,7 +120,71 @@ public final class GeometryBuilder {
 	 * hologram style but never built.
 	 */
 	public void guide(int x, int y, int z) {
-		guides.add(new int[] {x, y, z});
+		guide(x, y, z, Guide.OUTLINE);
+	}
+
+	/** Adds a guide cell of a given kind (see {@link Guide}): {x, y, z, kind}. */
+	public void guide(int x, int y, int z, int kind) {
+		guides.add(new int[] {x, y, z, kind});
+	}
+
+	/** Index of a material reference in this result's material list (added once). */
+	public int material(MaterialRef ref) {
+		return materialIndex.computeIfAbsent(ref, r -> {
+			materials.add(r);
+			return materials.size() - 1;
+		});
+	}
+
+	public List<MaterialRef> materials() {
+		return materials;
+	}
+
+	/** Replaces the material list (used when transforms rewrite exact states); indices must stay valid. */
+	public void replaceMaterials(List<MaterialRef> newMaterials) {
+		materials.clear();
+		materialIndex.clear();
+
+		for (MaterialRef ref : newMaterials) {
+			materials.add(ref);
+			materialIndex.putIfAbsent(ref, materials.size() - 1);
+		}
+	}
+
+	/** Assigns a group id (e.g. the spiral step) to a position, for grouped randomisation. */
+	public void group(int x, int y, int z, int id) {
+		groups.put(Voxels.pack(x, y, z), id);
+	}
+
+	public it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap groups() {
+		return groups;
+	}
+
+	/** Declares column (x, z) part of the tool's region: nothing may be generated outside a declared region. */
+	public void regionColumn(int x, int z) {
+		region.add(Voxels.pack(x, 0, z));
+	}
+
+	public it.unimi.dsi.fastutil.longs.LongOpenHashSet region() {
+		return region;
+	}
+
+	/** Declares column (x, z) protected: nothing may ever be generated in it, at any height. */
+	public void protectColumn(int x, int z) {
+		protectedColumns.add(Voxels.pack(x, 0, z));
+	}
+
+	public it.unimi.dsi.fastutil.longs.LongOpenHashSet protectedColumns() {
+		return protectedColumns;
+	}
+
+	/** A positioned text label (e.g. a contour height) shown with the hologram's labels. */
+	public void annotate(int x, int y, int z, String text) {
+		annotations.add(new Annotation(x, y, z, text));
+	}
+
+	public List<Annotation> annotations() {
+		return annotations;
 	}
 
 	public List<int[]> guides() {

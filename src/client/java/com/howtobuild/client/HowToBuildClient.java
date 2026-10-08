@@ -30,6 +30,7 @@ public final class HowToBuildClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		HowToBuildConfig.load();
+		BuildLibrary.init();
 		KeyBindings.init();
 		HologramRenderTypes.init();
 		CentreSelectionHandler.get().register();
