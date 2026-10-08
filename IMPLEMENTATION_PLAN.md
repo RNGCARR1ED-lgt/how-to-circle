@@ -642,7 +642,8 @@ settings are migrated.
 **Fit inside**
 - The master footprint is the wall boundary.
 - The steps use `master.inset(wall + clearance)`: exact erosion of discrete cells, never a float radius.
-- *Automatic inset* = wall thickness + clearance, plus one block when an outer curb or rail is enabled.
+- *Automatic inset* = wall thickness + clearance (edges and rails sit on the steps, inside the usable area). A manual
+  inset is also available; an inset smaller than the wall is reported.
 - The *Wall* detail fills the wall zone (`master − master.inset(wall)`), and nothing else enters it.
 - Stair width grows inwards (the inner radius adapts).
 

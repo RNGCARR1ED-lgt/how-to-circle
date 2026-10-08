@@ -1,8 +1,8 @@
 # How to Build
 
 A client-side Fabric mod for **Minecraft 26.2**: a geometry and construction toolkit that shows block-exact holograms of
-circles, ovals, squares, rectangles, cylinders, spheres, domes, spiral staircases and corridors before you place
-anything. It started as *How to Circle*, and every How to Circle feature is still here.
+circles, ovals, squares, rectangles, cylinders, spheres, domes, spiral staircases, corridors, randomised surfaces,
+terrain and saved builds before you place anything. It started as *How to Circle*, and every How to Circle feature is still here.
 
 Pick a tool and type its sizes. The hologram updates while you type and shows every block as the real block:
 - slabs are drawn as half blocks and stairs as real stair shapes, facing and corner shapes included;
@@ -25,9 +25,12 @@ you build by hand.
 | **Cylinder** | Round or oval cylinders | Width, length, height, solid or hollow, wall thickness, caps, vertical or lying along X / Z |
 | **Sphere** | Spheres and ellipsoids | Three diameters, solid or hollow, thickness, half / quarter slices, top / bottom / side opening |
 | **Dome** | Half-ellipsoid domes | Width, length, height, hollow, floor, open top (oculus), cutaway |
-| **Spiral Staircase** | Spiral stairs | Exact diameter, odd or even (32 stays 32 × 32 with a 2×2 centre), or **Follow Circle Dimensions**, stair width, inner radius, height, revolutions + extra angle, step rise, direction, start angle and height, a block type for each part (step, support, trim), support depth |
+| **Spiral Staircase** | Spiral stairs | Exact diameter, odd or even (32 stays 32 × 32 with a 2×2 centre), or a master circle (**Follow** or **Fit Inside** with wall thickness, clearance and inset), outer and inner edge styles, stair width, inner radius, height, revolutions + extra angle, step rise, direction, start angle and height, a block type for each part (step, support, trim), support depth |
 | **Corridor** | Tunnels | Width, height, length, thickness, arch / dome / sphere profile, filled / hollow / shell / open style, floor, ceiling and walls on or off, an arch every N blocks, runs along X or Z, Blocks / Slabs / Stairs for structure, arch curve and trim |
 | **Mirror** | Exact copies of any shape | Axis X, Z or X + Z; preview, both or replace; 1- or 2-block mirror centre; offset |
+| **Randomise** | Floors, walls or blocks filled with a palette | Circle, oval, square or rectangle region, size, thickness, floor or wall; the palette and pattern come from the Random tab |
+| **Terrain** | Hills, mountains, valleys and more | Region shape and size, 21 templates + custom, variation layer, height range, roughness, max slope, procedural noise (scale, octaves, persistence, lacunarity, smoothing, ridges, erosion, valleys), seed, material layers, protected area with edge blending, natural / smooth / cliff boundary, contours and `Y=` labels |
+| **Saved Build** | Any saved `.hwb` build | The saved blocks with their exact states, flip X / Z, upside down; move, rotate, mirror and build like any shape |
 
 **Every tool shares the following:**
 
@@ -40,8 +43,9 @@ you build by hand.
 
 **Materials**
 - Material types *Blocks*, *Slabs* and *Stairs*, in any combination.
-- Material roles (primary, trim, accent, step, support, cap, inner, rail and floor), each with its own block, slab and
-  stairs.
+- Material roles (primary, secondary, trim, accent, highlight, step, support, cap, inner, rail, floor, outer edge and
+  inner edge), each with its own block, slab and stairs.
+- **Randomisation** of any tool (see [Randomisation](#randomisation)) and **material replacement** from the Build tab.
 - Deterministic variation (none / subtle / medium / heavy) with variant blocks.
 - Patterns: stripes, checker, rings, bands and sections.
 
@@ -64,9 +68,17 @@ you build by hand.
   - the staircase is generated inside the exact footprint of a circle or oval;
   - every block, including rails, supports, landings and walls, is one of the circle's own blocks, so a 33 × 33
     spiral never sticks out of a 33 × 33 circle;
-  - **Copy from Circle tool** takes the Circle (or Oval) tool's size; **Fit spiral to circle** also keeps all details
-    inside and makes sure the steps fit;
+  - **Copy from Circle tool** takes the Circle (or Oval) tool's size; **Fit spiral inside circle** switches to Fit
+    Inside, keeps all details inside and makes sure the steps fit;
   - the master circle's outline is drawn as a guide.
+- **Fit Inside Circle:** the circle is the outer space (a tower wall). The steps use the circle shrunk by the wall
+  thickness plus the clearance (automatic) or a manual inset, by exact erosion of the circle's own cells: a 16 circle
+  with a 1-block wall gives a 14 × 14 staircase, and 32 with wall 1 and clearance 1 gives 28 × 28, all with the same
+  2×2 centre. Only the *Wall* detail may use the wall zone, nothing enters the clearance, and the usable boundary is
+  drawn in green.
+- **Edges:** outer edge simple, straight, rounded (slabs), trimmed, stepped (curb), detailed (fascia, rail and
+  highlights) or custom, 1–8 blocks thick in the *outer edge* material; inner edge open, central column, inner rail,
+  inner wall, trim or decorative ring.
 - **Thickness:** stair width grows inward from the fixed outer boundary, or an inner radius sets the well.
 - **Details outside:** *Allow details outside boundary* (off by default) lets a surrounding wall sit outside.
 - **Any size, odd or even:** the footprint is exactly the size you ask for: 32 is 32 × 32 with a genuine 2×2
@@ -87,6 +99,58 @@ you build by hand.
   away from the air it smooths.
 - Slabs take the half that matches the exposed side, or the chosen slab mode.
 - Shaping replaces blocks in place, so the corridor keeps its exact dimensions.
+
+## Randomisation
+
+The **Random** tab holds a palette: blocks from the block picker, each with a percentage (normalised to 100%
+automatically, or checked when normalising is off) and an on/off switch.
+
+- **Exact counts.** Blocks are ranked by the pattern and cut into runs of exactly the palette's shares, so 60 / 40 of
+  400 blocks is always 240 / 160.
+- **Modes:** weighted, fully random (equal shares) or deterministic. The same seed always gives the same result;
+  *Randomise again* picks a new seed and *Lock* keeps it.
+- **Patterns:** completely random, subtle, natural, clustered (cluster size), patchy, gradient, edge weighted, centre
+  weighted, striped, radial, noise and custom noise (scale, strength, octaves, contrast, threshold).
+- **Never changes geometry:** only materials change; positions, shapes and counts stay the same.
+- **Selective:** choose which roles are randomised; protect the outer edge in one block with 0–100% edge variation.
+- **Symmetry:** spirals can keep each step in one block or repeat every revolution; mirrored copies can repeat the
+  original or be randomised independently.
+- **Breakdown:** the exact counts are listed from the final blocks.
+
+## Terrain
+
+- **Templates:** flat, rolling hills, hill, twin hills, long ridge, low rolling hills, mountain (rocky, jagged, layered,
+  volcanic, alpine), mountain range, foothills, valley, ridge, plateau, crater, basin, island, cliff, or custom.
+- **Quality:** columns are solid (no holes), neighbouring columns differ by at most the max slope (no spikes), and
+  smoothing and erosion-like passes soften the result.
+- **Material layers** (Materials tab): any number of layers from the top, each a thickness (0 = to the base) and one or
+  more blocks with exact percentages. The default is grass, 3 dirt, then stone with andesite.
+- **Protected area:** a circle, oval, square or rectangle with its own size and offset that is never changed (the
+  validator blocks any build that would). The terrain blends into the real ground around it (sharp, smooth, natural
+  or very smooth, with a radius), sampled from the world on the client when the terrain is placed.
+- **Boundary:** natural (meets the surrounding ground), smooth or cliff.
+- **Display:** contour lines every N blocks with `Y=` labels in world heights, and the protected area and boundary
+  outlined.
+
+## Saved builds
+
+The **Builds** tab saves the current build to `.minecraft/howtobuild/builds/<name>.hwb`:
+
+- **Exact build:** every block's exact state, from the preview as shown, the generated shape, exactly what Build would
+  place, or the real world blocks inside the preview's bounds. **Procedural preset:** the tool and all settings, which
+  regenerate.
+- **Metadata:** name, author, description, tool, settings, seed, centre cells and offsets. Positions are relative to
+  the saved centre, so 1×1 and 2×2 centres are kept.
+- **Format:** a compact palette of block states plus 4 integers per block, gzip-compressed and validated on read. A
+  damaged file is reported, never crashes the game, and blocks from mods that are not installed are shown as purpur
+  and not built.
+- **Safe:** files are written in the background through a temporary file that is read back before it replaces
+  anything, so a failed save never damages an existing build.
+- **Loading** places the build as the *Saved Build* hologram. Saved = placed: move it with the centre and offsets,
+  rotate it, mirror it, flip it or turn it upside down; every block state turns with it.
+- **Compare with world** (Build tab) counts correct, missing, incorrect and extra blocks.
+- The list shows each build's size, block count, number of states and file size. *Open folder* imports and exports
+  `.hwb` files.
 
 ## Centre, offsets and dimensions
 
@@ -141,6 +205,13 @@ the blocks.
 | **Command build** | The build screen shows a full summary and asks for confirmation. Then `/fill` and `/setblock` commands are sent through the normal command path, as if you typed them. |
 | **Export** | Copy the commands, or save them as `.mcfunction` (with an undo file) under `howtobuild/exports`. |
 
+The **Build** tab starts with a summary of what will be built: tool, size, centre, block and material counts, details,
+randomisation, mirror and spiral inset. The material list shows a 3D icon, the exact count and share and a summary of
+states (facing, half, type, …) for each block, filtered by All, Blocks, Slabs, Stairs, Details, Structural or Accent.
+Click a material to replace it everywhere; facing, half, shape, type, waterlogged and every other property both
+blocks share are kept. *Show block list* lists every exact state. For normal building it checks your inventory;
+for command building it shows the command count.
+
 Command building:
 
 **Planning**
@@ -182,7 +253,9 @@ beside it.
 
 **Layout**
 - **Tools**: the tool list, with favourites first (★), and a Simple / Advanced switch.
-- **Tabs**: *Geometry*, *Center*, *Materials*, *Details*, *Labels*, *Mirror* and *Build*.
+- **Tabs**: *Geometry*, *Center*, *Materials*, *Random*, *Details*, *Labels*, *Mirror*, *Build* and *Builds*.
+- **Preview pane**: on wide screens a third column shows a top-down map of the preview (each column in its top
+  block's colour) with its size, block count and flags; it can be hidden.
 - **Sections**:
   - sections are laid out in two columns when there is room;
   - every section header can be clicked to collapse it.
@@ -220,7 +293,7 @@ those commands.
 
 ```
 GUI ─► config ─► BuildTool.generate (background thread, pure) ─► GeometryPipeline
-       (smoothing, rotation, patterns, variation, stair shapes) ─► GeometryResult (exact placements)
+       (smoothing, rotation, patterns, variation, randomisation, stair shapes, validation) ─► GeometryResult
    ─► MirrorTransform ─► MaterialResolver (BlockStates) ─┬─► RenderMesh  ─► HologramRenderer
                                                          ├─► LabelSet    ─► DimensionLabelRenderer
                                                          ├─► ProgressTracker (normal building)
@@ -228,8 +301,12 @@ GUI ─► config ─► BuildTool.generate (background thread, pure) ─► Geo
 ```
 
 **Geometry**
-- Tools only describe their parameters and write placements: (x, y, z, role, shape). Shared stages do everything
-  else.
+- Tools only describe their parameters and write placements: (x, y, z, role, shape, material). A material is either
+  the role's block, a palette block or an exact saved state; rotation and mirroring transform exact states too.
+  Shared stages do everything else.
+- **One result for everything:** the hologram, labels, mirror, material counts, saves, commands and normal building
+  all read the same `GeometryResult`. `GeometryValidator` checks it (duplicates, blocks below the base, inside a
+  protected area or outside the region, invalid materials) and blocks building when it fails.
 - All curves use exact integer tests on doubled coordinates.
 - Hollow shapes are built by erosion, so walls have exactly the requested thickness and are watertight.
 - Mirroring uses `x' = P − 1 − x` with the plane `P` in doubled coordinates, so every copy is exact.
@@ -276,9 +353,11 @@ src/main/java/com/howtobuild/        pure Java, no Minecraft classes (unit-teste
   details/     DetailFeature, presets, patterns, variation, SmoothingPass
   transform/   MirrorTransform, MirrorSettings
   dimensions/  SectionDetector, DimensionFormatter, LabelLayout
-  commands/    CommandPlanner, CommandPlan
+  commands/    CommandPlanner, CommandPlan, MaterialCounter
+  palette/     WeightedPalette, RandomSettings, Randomiser, Noise
+  saves/       BuildFile, HwbCodec (.hwb), SavedBuilds
 src/client/java/com/howtobuild/
-  client/      HowToBuildClient (entrypoint), BuildSession, ProgressTracker
+  client/      HowToBuildClient (entrypoint), BuildSession, BuildLibrary, ProgressTracker
   config/      HowToBuildConfig, LegacyMigration, PresetStore, …
   materials/   BlockCatalog, MaterialResolver, MaterialFamilies
   render/      RenderMesh, HologramRenderer, LabelSet, DimensionLabelRenderer, SelectionHud
@@ -307,7 +386,18 @@ src/gametest/java/   Fabric client game test
   - rotation keeps 2×2 centres;
   - commands expand back to exactly the preview's blocks;
 - the corridor's 7 Blocks / Slabs / Stairs combinations, curve-following stairs, slab halves and explicit part
-  assignment.
+  assignment;
+- randomisation: exact counts for every pattern, determinism, unchanged geometry, selected roles, edge protection and
+  variation, per-step and per-revolution symmetry, independent mirror randomisation;
+- terrain: every template and variation, slopes and solid columns, exact regions, protected areas never touched,
+  blending into the ground, boundaries, layers with exact shares, contours;
+- spiral Fit Inside: 16 with insets 0 / 1 / 2, 32 with a 2×2 centre, nothing in the wall or clearance zone, manual
+  inset, edge options and per-step groups;
+- `.hwb`: round trips, damaged and invalid files, a failed save keeping the old file, the folder cache, saved = placed,
+  flips, rotation and mirror of exact states, material counts;
+- block state transforms (rotation, mirror, upside down) for stairs, logs, doors, signs, fences, chests, rails, slabs
+  and levers;
+- a translation for every tool, parameter, option, section and role.
 
 **Client game test** (`./gradlew runClientGameTest`, run in CI under Xvfb) uses a real client:
 - the GUI and every tab;
@@ -326,6 +416,11 @@ src/gametest/java/   Fabric client game test
 - an arch corridor with a stair curve and slab trim;
 - render cost of large shapes;
 - centre selection with real clicks;
+- randomising a 20 × 20 floor at 60 / 40 (exactly 240 / 160) and a spiral without changing its geometry;
+- terrain with a protected area;
+- a spiral fitted inside a 16 circle (14 × 14, 2×2 centre);
+- material replacement keeping stair facing;
+- saving a spiral to `.hwb`, loading it back with every block state identical, and comparing it with the world;
 - that previewing changed no blocks;
 - finally, a command build as an operator: a detailed spiral with landings on solid ground. It checks every block
   state on the server and that the ground below is untouched, then undoes the build.

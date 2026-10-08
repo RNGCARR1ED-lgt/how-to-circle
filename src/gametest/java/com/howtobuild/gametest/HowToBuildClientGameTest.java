@@ -24,8 +24,12 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContex
 import com.howtobuild.building.BuildAnalysis;
 import com.howtobuild.building.CommandExecutor;
 import com.howtobuild.building.CommandPermission;
+import com.howtobuild.client.BuildLibrary;
 import com.howtobuild.client.BuildSession;
+import com.howtobuild.commands.MaterialCounter;
 import com.howtobuild.config.HowToBuildConfig;
+import com.howtobuild.config.RandomConfig;
+import com.howtobuild.config.TerrainLayerConfig;
 import com.howtobuild.details.DetailFeature;
 import com.howtobuild.details.DetailPreset;
 import com.howtobuild.dimensions.DimensionFormat;
@@ -94,6 +98,11 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 			testLargeShapes(context);
 			testCentreSelectionKey(context);
 			testGuiOpenCloseRepeatedly(context);
+			testRandomisation(context);
+			testTerrain(context);
+			testSpiralFitInside(context);
+			testMaterialReplacement(context);
+			testSaveAndLoad(context);
 
 			List<BlockState> after = snapshot(singleplayer);
 			check(before.equals(after), "Previewing never placed or modified a real block");
@@ -143,6 +152,9 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		c.hologram.seeThroughBlocks = false;
 		c.build.commandsPerTick = 2;
 		c.build.keepExisting = false;
+		c.random = new RandomConfig();
+		c.terrainLayers = TerrainLayerConfig.defaults();
+		c.materialOverrides.clear();
 		c.sanitize();
 	}
 
@@ -206,7 +218,7 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 		awaitGeometry(context);
 		context.takeScreenshot("gui_geometry");
 
-		for (String tab : List.of("center", "materials", "details", "labels", "mirror", "build", "geometry")) {
+		for (String tab : List.of("center", "materials", "randomise", "details", "labels", "mirror", "build", "builds", "geometry")) {
 			context.clickScreenButton("gui.howtobuild.tab." + tab);
 			context.waitTicks(2);
 			check(context.computeOnClient(client -> HowToBuildConfig.get().tab.equalsIgnoreCase(tab)), "Tab " + tab + " opens");
@@ -570,6 +582,127 @@ public class HowToBuildClientGameTest implements FabricClientGameTest {
 			context.getInput().pressKey(GLFW.GLFW_KEY_ESCAPE);
 			context.waitForScreen(null);
 		}
+	}
+
+	// ----------------------------------------------------------------- randomisation, terrain, inset, saved builds
+
+	private static Map<String, Long> blockCounts() {
+		Map<String, Long> map = new LinkedHashMap<>();
+
+		for (MaterialCounter.Count count : BuildSession.get().materialCounts()) {
+			map.put(count.block(), count.count());
+		}
+
+		return map;
+	}
+
+	private void testRandomisation(ClientGameTestContext context) {
+		use(context, "randomise", params("region_shape", "RECTANGLE", "width", "20", "length", "20"), c -> {
+			c.random.palette = new ArrayList<>(List.of(new RandomConfig.Entry("minecraft:stone", 60), new RandomConfig.Entry("minecraft:andesite", 40)));
+			c.random.pattern = com.howtobuild.palette.RandomPattern.CLUSTERED;
+		});
+		Map<String, Long> counts = context.computeOnClient(client -> blockCounts());
+		check(Long.valueOf(240).equals(counts.get("minecraft:stone")) && Long.valueOf(160).equals(counts.get("minecraft:andesite")),
+				"Randomise 20 × 20 at 60 / 40 gives exactly 240 stone and 160 andesite: " + counts);
+		view(context, "0.5 -48 -14 0 50");
+		context.takeScreenshot("randomise_clustered_60_40");
+
+		GeometryResult plain = use(context, "spiral", params("diameter", "15"), c -> {
+		});
+		GeometryResult random = use(context, "spiral", params("diameter", "15"), c -> {
+			c.random.enabled = true;
+			c.random.roles = new ArrayList<>(List.of("step"));
+			c.random.symmetry = com.howtobuild.palette.RandomSymmetry.PER_STEP;
+		});
+		check(plain.blockCount() == random.blockCount() && plain.bounds().equals(random.bounds()), "Randomising a spiral never changes its geometry");
+		view(context, "0.5 -45 -16 0 45");
+		context.takeScreenshot("spiral_randomised_per_step");
+	}
+
+	private void testTerrain(ClientGameTestContext context) {
+		GeometryResult r = use(context, "terrain", params("width", "48", "template", "MOUNTAIN", "max_height", "20", "protect", "true",
+				"protected_width", "12", "protected_offset_x", "6"), c -> {
+		});
+		check(!r.isEmpty() && r.warnings().stream().noneMatch(com.howtobuild.geometry.GeometryValidator::isBlocking), "Terrain generates without errors");
+		check(r.placements().stream().noneMatch(p -> r.protectedColumns().contains(com.howtobuild.geometry.Voxels.pack(p.x(), 0, p.z()))),
+				"No terrain block lies in the protected area");
+		check(context.computeOnClient(client -> blockCounts().containsKey("minecraft:grass_block")), "Terrain is topped with the grass layer");
+		view(context, "0.5 -30 -40 0 35");
+		context.takeScreenshot("terrain_mountain_protected");
+	}
+
+	private void testSpiralFitInside(ClientGameTestContext context) {
+		GeometryResult r = use(context, "spiral", params("circle_mode", "FIT_INSIDE", "circle_width", "16", "wall_thickness", "1", "clearance", "0",
+				"outer_edge", "DETAILED"), c -> c.hologram.showGuides = true);
+		check(r.bounds().sizeX() == 14 && r.bounds().sizeZ() == 14 && r.centreCells().size() == 4,
+				"A spiral fitted inside a 16 circle with a 1-block wall is 14 × 14 with a 2×2 centre");
+		view(context, "0.5 -45 -14 0 50");
+		context.takeScreenshot("spiral_fit_inside_16");
+	}
+
+	private void testMaterialReplacement(ClientGameTestContext context) {
+		use(context, "circle", params("size", "11", "fill", "FILLED"), c -> c.materialOverrides.put("minecraft:stone_bricks", "minecraft:deepslate_bricks"));
+		Map<String, Long> counts = context.computeOnClient(client -> blockCounts());
+		check(counts.containsKey("minecraft:deepslate_bricks") && !counts.containsKey("minecraft:stone_bricks"), "Replacing a material swaps it everywhere: " + counts);
+		use(context, "spiral", params("diameter", "11"), c -> {
+			c.materialTypes = new ArrayList<>(List.of(ShapeKind.STAIRS));
+			c.materialOverrides.put("minecraft:oak_stairs", "minecraft:spruce_stairs");
+		});
+		boolean kept = context.computeOnClient(client -> {
+			BuildSession.Resolved resolved = BuildSession.get().resolved();
+
+			for (int i = 0; i < resolved.states().length; i++) {
+				Placement p = resolved.result().placements().get(i);
+
+				if (p.shape().isStairs() && p.role() == MaterialRole.STEP) {
+					BlockState state = resolved.states()[i];
+
+					if (!state.is(Blocks.SPRUCE_STAIRS) || state.getValue(StairBlock.FACING) != MaterialResolver.direction(p.shape().facing())) return false;
+				}
+			}
+
+			return true;
+		});
+		check(kept, "Replaced stairs keep their facing");
+	}
+
+	private void testSaveAndLoad(ClientGameTestContext context) {
+		use(context, "spiral", params("diameter", "12", "stair_width", "3"), c -> c.materialTypes = new ArrayList<>(List.of(ShapeKind.BLOCKS, ShapeKind.STAIRS)));
+		Map<BlockPos, BlockState> original = context.computeOnClient(client -> states(BuildSession.get().resolved()));
+		java.util.concurrent.atomic.AtomicReference<String> saved = new java.util.concurrent.atomic.AtomicReference<>();
+		context.runOnClient(client -> {
+			var file = BuildLibrary.capture("Game Test Spiral", "saved by the game test", BuildLibrary.Source.FINAL, false);
+			BuildLibrary.save("Game Test Spiral", file, error -> saved.set(error == null ? "ok" : error));
+		});
+
+		for (int i = 0; i < 200 && saved.get() == null; i++) {
+			context.waitTicks(1);
+		}
+
+		check("ok".equals(saved.get()), "The build is saved (" + saved.get() + ")");
+		check(context.computeOnClient(client -> BuildLibrary.load("Game Test Spiral")) == null, "The saved build loads");
+		GeometryResult placed = awaitGeometry(context);
+		check(context.computeOnClient(client -> HowToBuildConfig.get().tool.equals("saved_build")), "Loading switches to the Saved Build tool");
+		Map<BlockPos, BlockState> loaded = context.computeOnClient(client -> states(BuildSession.get().resolved()));
+		check(original.equals(loaded), "Saved = placed: every block and state matches (" + original.size() + " vs " + loaded.size() + ")");
+		check(placed.centreCells().size() == 4, "The saved 2×2 centre is kept");
+		BuildLibrary.Comparison comparison = context.computeOnClient(client -> BuildLibrary.compare());
+		check(comparison.missing() == original.size() && comparison.correct() == 0, "Compare with world: every block is still missing");
+		view(context, "0.5 -45 -16 0 45");
+		context.takeScreenshot("saved_build_loaded");
+		context.runOnClient(client -> BuildLibrary.delete("Game Test Spiral", () -> {
+		}));
+		context.waitTicks(5);
+	}
+
+	private static Map<BlockPos, BlockState> states(BuildSession.Resolved r) {
+		Map<BlockPos, BlockState> map = new LinkedHashMap<>();
+
+		for (int i = 0; i < r.states().length; i++) {
+			map.put(r.worldPos(i), r.states()[i]);
+		}
+
+		return map;
 	}
 
 	// ----------------------------------------------------------------- command build
