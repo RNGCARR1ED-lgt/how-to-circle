@@ -44,6 +44,7 @@ import com.howtobuild.geometry.ShapeKind;
 import com.howtobuild.input.CentreSelectionHandler;
 import com.howtobuild.materials.BlockCatalog;
 import com.howtobuild.materials.MaterialResolver;
+import com.howtobuild.materials.MaterialThemes;
 import com.howtobuild.palette.MirrorRandomisation;
 import com.howtobuild.palette.RandomMode;
 import com.howtobuild.palette.RandomPattern;
@@ -674,6 +675,24 @@ public final class HowToBuildScreen extends BaseScreen {
 			if (!roles.contains(role)) continue;
 
 			rows.add(new Row(24, (x, y, w) -> materialRow(role, x, y, w)));
+		}
+
+		rows.add(header("gui.howtobuild.themes"));
+		MaterialThemes[] themes = MaterialThemes.values();
+
+		for (int i = 0; i < themes.length; i += 4) {
+			int start = i;
+			rows.add(row((x, y, w) -> {
+				int bw = (w - 12) / 4;
+
+				for (int k = 0; k < 4 && start + k < themes.length; k++) {
+					MaterialThemes theme = themes[start + k];
+					button(x + k * (bw + 4), y, bw, Component.translatable("theme.howtobuild." + theme.name().toLowerCase(Locale.ROOT)), () -> {
+						c.materials = theme.materials();
+						changed(true);
+					}, "gui.howtobuild.themes.tooltip");
+				}
+			}));
 		}
 
 		rows.add(header("gui.howtobuild.variation"));
@@ -1438,6 +1457,7 @@ public final class HowToBuildScreen extends BaseScreen {
 	private static String saveDescription = "";
 	private static BuildLibrary.Source saveSource = BuildLibrary.Source.AS_SHOWN;
 	private static boolean saveProcedural;
+	private static com.howtobuild.saves.BuildFile.Origin saveOrigin = com.howtobuild.saves.BuildFile.Origin.CENTER;
 	private static String buildsStatus = "";
 	private static String pendingDelete = "";
 	private static boolean buildsListed;
@@ -1460,6 +1480,10 @@ public final class HowToBuildScreen extends BaseScreen {
 						"gui.howtobuild.builds.source.tooltip", false),
 				(x, y, w) -> dynamicButton(x, y, w, () -> Component.translatable(saveProcedural ? "gui.howtobuild.builds.procedural" : "gui.howtobuild.builds.exact"),
 						() -> saveProcedural = !saveProcedural, "gui.howtobuild.builds.kind.tooltip")));
+		rows.add(row((x, y, w) -> dynamicButton(x, y, w, () -> Component.translatable("gui.howtobuild.builds.origin").append(": ")
+				.append(Component.translatable("gui.howtobuild.builds.origin." + saveOrigin.name().toLowerCase(Locale.ROOT))), () ->
+				saveOrigin = saveOrigin == com.howtobuild.saves.BuildFile.Origin.CENTER ? com.howtobuild.saves.BuildFile.Origin.MIN_CORNER
+						: com.howtobuild.saves.BuildFile.Origin.CENTER, "gui.howtobuild.builds.origin.tooltip")));
 		rows.add(row((x, y, w) -> dynamicButton(x, y, w, () -> Component.translatable(BuildLibrary.names().stream().anyMatch(n -> n.equalsIgnoreCase(fileStem(saveName)))
 				? "gui.howtobuild.builds.overwrite" : "gui.howtobuild.builds.save_button"), this::saveBuild, "gui.howtobuild.builds.save_button.tooltip")));
 		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> buildsStatus, () -> buildsStatus.startsWith("⚠") ? WARNING : GOOD)));
@@ -1533,7 +1557,8 @@ public final class HowToBuildScreen extends BaseScreen {
 
 	private void saveBuild() {
 		String name = saveName.isBlank() ? Component.translatable(config().activeTool().translationKey()).getString() : saveName.trim();
-		var file = BuildLibrary.capture(name, saveDescription, saveSource, saveProcedural);
+		var captured = BuildLibrary.capture(name, saveDescription, saveSource, saveProcedural);
+		var file = captured == null ? null : BuildLibrary.withOrigin(captured, saveOrigin);
 
 		if (file == null) {
 			buildsStatus = "⚠ " + Component.translatable("gui.howtobuild.builds.nothing").getString();

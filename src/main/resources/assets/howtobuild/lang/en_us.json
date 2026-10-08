@@ -880,5 +880,19 @@
 	"enum.howtobuild.generated": "Generated",
 	"enum.howtobuild.final": "Final",
 	"enum.howtobuild.world_region": "World region",
-	"enum.howtobuild.as_shown": "As shown"
+	"enum.howtobuild.as_shown": "As shown",
+	"gui.howtobuild.themes": "Material themes",
+	"gui.howtobuild.themes.tooltip": "Set every part (primary, secondary, trim, accent, steps, supports, edges…) to a matching family of blocks.",
+	"theme.howtobuild.stone": "Stone",
+	"theme.howtobuild.deepslate": "Deepslate",
+	"theme.howtobuild.sandstone": "Sandstone",
+	"theme.howtobuild.oak": "Oak",
+	"theme.howtobuild.quartz": "Quartz",
+	"theme.howtobuild.blackstone": "Blackstone",
+	"theme.howtobuild.prismarine": "Prismarine",
+	"theme.howtobuild.brick": "Brick",
+	"gui.howtobuild.builds.origin": "Origin",
+	"gui.howtobuild.builds.origin.center": "Centre",
+	"gui.howtobuild.builds.origin.min_corner": "Minimum corner",
+	"gui.howtobuild.builds.origin.tooltip": "Centre: the saved centre (1×1 or 2×2) is placed on the selected centre. Minimum corner: the build's lowest north-west corner is placed on it."
 }

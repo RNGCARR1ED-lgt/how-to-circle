@@ -46,6 +46,8 @@ you build by hand.
 - Material roles (primary, secondary, trim, accent, highlight, step, support, cap, inner, rail, floor, outer edge and
   inner edge), each with its own block, slab and stairs.
 - **Randomisation** of any tool (see [Randomisation](#randomisation)) and **material replacement** from the Build tab.
+- **Material themes** (stone, deepslate, sandstone, oak, quartz, blackstone, prismarine, brick) set every role at
+  once.
 - Deterministic variation (none / subtle / medium / heavy) with variant blocks.
 - Patterns: stripes, checker, rings, bands and sections.
 
@@ -140,7 +142,7 @@ The **Builds** tab saves the current build to `.minecraft/howtobuild/builds/<nam
   place, or the real world blocks inside the preview's bounds. **Procedural preset:** the tool and all settings, which
   regenerate.
 - **Metadata:** name, author, description, tool, settings, seed, centre cells and offsets. Positions are relative to
-  the saved centre, so 1×1 and 2×2 centres are kept.
+  the origin: the saved centre (so 1×1 and 2×2 centres are kept) or the build's minimum corner.
 - **Format:** a compact palette of block states plus 4 integers per block, gzip-compressed and validated on read. A
   damaged file is reported, never crashes the game, and blocks from mods that are not installed are shown as purpur
   and not built.

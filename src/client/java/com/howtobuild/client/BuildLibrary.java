@@ -186,6 +186,27 @@ public final class BuildLibrary {
 				BuildFile.Origin.CENTER, r.result().centreCells(), offset, config.random.seed, settings.toString(), false, palette, flat);
 	}
 
+	/**
+	 * Re-expresses a build relative to another origin: with the minimum corner as origin, the build's lowest north-west
+	 * corner is placed on the selected block. Centre cells move with the blocks, so flips stay exact.
+	 */
+	public static BuildFile withOrigin(BuildFile file, BuildFile.Origin origin) {
+		if (origin != BuildFile.Origin.MIN_CORNER || file.blockCount() == 0) return file;
+
+		int[] b = file.bounds();
+		int[] blocks = file.blocks().clone();
+
+		for (int i = 0; i < blocks.length; i += 4) {
+			blocks[i] -= b[0];
+			blocks[i + 1] -= b[1];
+			blocks[i + 2] -= b[2];
+		}
+
+		List<int[]> centres = file.centreCells().stream().map(c -> new int[] {c[0] - b[0], c[1] - b[1], c[2] - b[2]}).toList();
+		return new BuildFile(file.name(), file.author(), file.description(), file.tool(), file.created(), origin, centres, file.offset(), file.seed(),
+				file.settings(), file.procedural(), file.palette(), blocks);
+	}
+
 	private static int paletteIndex(List<String> palette, Map<String, Integer> index, String state) {
 		return index.computeIfAbsent(state, s -> {
 			palette.add(s);
