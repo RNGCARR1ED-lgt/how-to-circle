@@ -25,16 +25,18 @@ you build by hand.
 | **Cylinder** | Round or oval cylinders | Width, length, height, solid or hollow, wall thickness, caps, vertical or lying along X / Z |
 | **Sphere** | Spheres and ellipsoids | Three diameters, solid or hollow, thickness, half / quarter slices, top / bottom / side opening |
 | **Dome** | Half-ellipsoid domes | Width, length, height, hollow, floor, open top (oculus), cutaway |
-| **Spiral Staircase** | Spiral stairs | Outer radius, stair width, height, revolutions + extra angle, step rise, direction, start angle and height, a block type for each part (step, support, trim), support depth |
-| **Corridor** | Tunnels | Width, height, length, thickness, arch / dome / sphere profile, filled / hollow / shell / open style, floor, ceiling and walls on or off, an arch every N blocks, runs along X or Z |
+| **Spiral Staircase** | Spiral stairs | Exact diameter, odd or even (32 stays 32 × 32 with a 2×2 centre), or **Follow Circle Dimensions**, stair width, inner radius, height, revolutions + extra angle, step rise, direction, start angle and height, a block type for each part (step, support, trim), support depth |
+| **Corridor** | Tunnels | Width, height, length, thickness, arch / dome / sphere profile, filled / hollow / shell / open style, floor, ceiling and walls on or off, an arch every N blocks, runs along X or Z, Blocks / Slabs / Stairs for structure, arch curve and trim |
 | **Mirror** | Exact copies of any shape | Axis X, Z or X + Z; preview, both or replace; 1- or 2-block mirror centre; offset |
 
 **Every tool shares the following:**
 
 **Geometry**
 - Exact integer geometry, so the result is symmetric, gap-free and the same every time.
-- The common 1×1 / 2×2 centre system.
-- 90° rotation and X / Y / Z offsets.
+- One coordinate system for every tool (see [Centre, offsets and dimensions](#centre-offsets-and-dimensions)):
+  - the common 1×1 / 2×2 centre;
+  - X / Y / Z offsets;
+  - 90° rotation about the true centre.
 
 **Materials**
 - Material types *Blocks*, *Slabs* and *Stairs*, in any combination.
@@ -58,12 +60,56 @@ you build by hand.
   - wall panels, light recesses, alternating arches and entry frame.
 
 **Spiral staircase**
+- **Follow Circle Dimensions:**
+  - the staircase is generated inside the exact footprint of a circle or oval;
+  - every block, including rails, supports, landings and walls, is one of the circle's own blocks, so a 33 × 33
+    spiral never sticks out of a 33 × 33 circle;
+  - **Copy from Circle tool** takes the Circle (or Oval) tool's size; **Fit spiral to circle** also keeps all details
+    inside and makes sure the steps fit;
+  - the master circle's outline is drawn as a guide.
+- **Thickness:** stair width grows inward from the fixed outer boundary, or an inner radius sets the well.
+- **Details outside:** *Allow details outside boundary* (off by default) lets a surrounding wall sit outside.
+- **Any size, odd or even:** the footprint is exactly the size you ask for: 32 is 32 × 32 with a genuine 2×2
+  centre, 33 is 33 × 33 with a 1×1 centre. Sizes are never rounded to odd, with or without Follow Circle
+  Dimensions.
+- **Centre:** shared with the circle; angles and stair facing are measured from the true centre.
 - Works with any combination of blocks, slabs and stairs.
 - Stair blocks face along the direction of travel; inner and outer corner shapes are computed exactly as vanilla
   does.
 - Slab mode: automatic, bottom, top or double.
 - Warns about impossible settings, such as a stair width larger than the radius, too little headroom or steps too
   far apart to walk.
+
+**Corridor / arch**
+- Blocks, Slabs and Stairs in any combination, assigned to the **structure**, the **arch curve** and the **trim**
+  (for example blocks for the walls, stairs on the curve, slabs for the frames).
+- Stairs follow the curvature on both faces of the arch: upside-down underneath, upright on the roof, each facing
+  away from the air it smooths.
+- Slabs take the half that matches the exposed side, or the chosen slab mode.
+- Shaping replaces blocks in place, so the corridor keeps its exact dimensions.
+
+## Centre, offsets and dimensions
+
+Every tool, the hologram, labels, mirror, progress tracking and command building use the same rules:
+
+- **Dimensions are exact.** 33 × 33 means the generated footprint spans exactly 33 blocks along X and 33 along Z.
+- **Centre.**
+  - Odd sizes have a 1×1 centre and even sizes a 2×2 centre; *Center mode* can force either.
+  - A forced centre that does not fit the size shows a warning instead of changing the size.
+  - The centre is drawn as glowing blocks with a beam, visible through walls; *Show centre* toggles it.
+  - While you pick a centre, the full 1×1 or 2×2 centre is previewed.
+- **Offsets.**
+  - X / Y / Z offsets move the shape relative to the selected centre: centre (100, 80, 200) with offset (+5, +2, −3)
+    builds at (105, 82, 197).
+  - Changing sizes or tools keeps them.
+- **Y.**
+  - For floor shapes, cylinders, domes, corridors and spirals, the centre's Y is the lowest layer, and nothing is
+    generated below it.
+  - Spheres and wall shapes are centred on it.
+  - There is no hidden vertical adjustment; only your Y offset moves the shape up or down.
+- **Preview = build.** The hologram and the `/fill` / `/setblock` commands come from the same block list, so a
+  command build changes exactly the previewed blocks, and nothing under them.
+- **Dimension debug** (Center tab) shows the exact world bounds (min / max X, Z and Y), size and centre.
 
 ## Labels
 
@@ -131,11 +177,19 @@ Command building:
 | `J` | Select the centre (left-click confirms, right-click cancels, sneak targets the block itself) |
 | *(unbound)* | Select the mirror centre, show/hide the hologram, open the build screen, pause/resume a command build |
 
-The screen covers only the left part of the window, so you can watch the hologram change.
+The screen takes about two thirds of the window and adapts to the resolution, so you can watch the hologram change
+beside it.
 
 **Layout**
 - **Tools**: the tool list, with favourites first (★), and a Simple / Advanced switch.
-- **Tabs**: *Geometry*, *Materials*, *Details*, *Labels*, *Mirror* and *Build*.
+- **Tabs**: *Geometry*, *Center*, *Materials*, *Details*, *Labels*, *Mirror* and *Build*.
+- **Sections**:
+  - sections are laid out in two columns when there is room;
+  - every section header can be clicked to collapse it.
+- **Center section** (in the Geometry and Center tabs):
+  - centre mode, the centre's coordinates and size;
+  - the X / Y / Z offset;
+  - Select Center and My Position.
 - **Help**: every control has a tooltip, and **?** opens help for the current tab.
 
 **Materials and presets**
@@ -244,7 +298,16 @@ src/gametest/java/   Fabric client game test
 - corridor profiles and repeating arches;
 - mirror exactness for every axis, centre width and offset;
 - label formats and templates;
-- the command planner: exact coverage, no empty space, state preservation, splitting and undo.
+- the command planner: exact coverage, no empty space, state preservation, splitting and undo;
+- the unified coordinate system:
+  - a spiral following circles and ovals (odd, even, 7 to 33 blocks) stays inside the circle's blocks for every
+    stair width, detail preset and material combination;
+  - circle and spiral share their 1×1 and 2×2 centres, and offsets move both identically;
+  - no base-anchored tool generates below its base;
+  - rotation keeps 2×2 centres;
+  - commands expand back to exactly the preview's blocks;
+- the corridor's 7 Blocks / Slabs / Stairs combinations, curve-following stairs, slab halves and explicit part
+  assignment.
 
 **Client game test** (`./gradlew runClientGameTest`, run in CI under Xvfb) uses a real client:
 - the GUI and every tab;
@@ -257,10 +320,15 @@ src/gametest/java/   Fabric client game test
 - an exact mirror with offset;
 - block picker filters against the real block registry;
 - the label `6` updating to `6 × 1` immediately;
+- a spiral following a 33 × 33 circle staying inside it in the world;
+- 32 × 32 circle and spiral sharing a 2×2 centre;
+- offsets moving circle and spiral identically;
+- an arch corridor with a stair curve and slab trim;
 - render cost of large shapes;
 - centre selection with real clicks;
 - that previewing changed no blocks;
-- finally, a command build as an operator, checking every block state on the server, followed by undo.
+- finally, a command build as an operator: a detailed spiral with landings on solid ground. It checks every block
+  state on the server and that the ground below is untouched, then undoes the build.
 
 Screenshots are saved to `build/run/clientGameTest/screenshots`.
 

@@ -36,6 +36,14 @@ public interface BuildTool {
 		return 0;
 	}
 
+	/**
+	 * What the anchor's Y layer means for these settings. {@link VerticalAnchor#BASE} tools must not generate anything
+	 * below layer 0; the pipeline checks this.
+	 */
+	default VerticalAnchor verticalAnchor(ToolSettings settings) {
+		return VerticalAnchor.BASE;
+	}
+
 	/** Whether the Blocks / Slabs / Stairs material types change what this tool generates. */
 	default boolean usesMaterialTypes() {
 		return false;

@@ -74,10 +74,14 @@ class PlanarToolsTest {
 	}
 
 	@Test
-	void forcedCentreAdjustsSizeAndWarns() {
+	void incompatibleForcedCentreIsReportedInsteadOfChangingTheSize() {
 		GeometryResult result = TestShapes.generate("circle", "size", 16, "centre_size", "ONE_BY_ONE");
-		assertEquals(17, result.width());
-		assertTrue(result.warnings().stream().anyMatch(w -> w.contains("16 → 17")));
+		assertTrue(result.isEmpty(), "no geometry is generated for a 1×1 centre on an even size");
+		assertTrue(result.warnings().stream().anyMatch(w -> w.contains("1×1 centre needs odd")), result.warnings().toString());
+
+		GeometryResult ok = TestShapes.generate("circle", "size", 16, "centre_size", "TWO_BY_TWO");
+		assertEquals(16, ok.width());
+		assertEquals(4, ok.centreCells().size());
 	}
 
 	@Test

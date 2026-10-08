@@ -86,7 +86,8 @@ public final class MirrorTransform {
 		out.forEach(builder::put);
 		StairShapes.resolve(builder);
 		List<int[]> centres = new ArrayList<>(source.centreCells());
-		return new GeometryResult(source.toolId(), builder.snapshot(), centres, source.values(), source.warnings(), source.planeNormalAxis());
+		return new GeometryResult(source.toolId(), builder.snapshot(), centres, source.values(), source.warnings(), source.planeNormalAxis())
+				.withGuides(source.guides());
 	}
 
 	/** Mirrors one placement across the X and/or Z plane, including its block state. */

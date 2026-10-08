@@ -210,16 +210,24 @@ public final class CylinderTool implements BuildTool, Mirrorable, Detailable, Ma
 				case ALONG_X -> {
 					// Cross-section: u → Z, v → Y (resting on the anchor level); layers run along X.
 					minU = Centring.minOffset(w, ctx.alignZ());
-					minV = 0;
+					minV = rimLift(ctx);
 					minLayer = Centring.minOffset(h, ctx.alignX());
 				}
 				default -> {
 					// Cross-section: u → X, v → Y; layers run along Z.
 					minU = Centring.minOffset(w, ctx.alignX());
-					minV = 0;
+					minV = rimLift(ctx);
 					minLayer = Centring.minOffset(h, ctx.alignZ());
 				}
 			}
+		}
+
+		/**
+		 * A lying cylinder rests on the anchor layer. Its rims project one block beyond the round surface, including
+		 * downwards, so with rims the body sits one block up and the rim's lowest blocks are the base layer.
+		 */
+		private static int rimLift(GenerationContext ctx) {
+			return ctx.details().has(DetailFeature.TOP_RIM) || ctx.details().has(DetailFeature.BOTTOM_RIM) ? 1 : 0;
 		}
 
 		void set(GeometryBuilder out, int u, int v, int layer, MaterialRole role) {

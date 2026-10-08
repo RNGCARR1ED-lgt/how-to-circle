@@ -57,14 +57,14 @@ public final class ProgressTracker {
 			conflicts = 0;
 		}
 
-		BlockPos origin = resolved.anchor();
+		var t = resolved.transform();
 		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 
 		for (int n = 0; n < PER_TICK && !placements.isEmpty(); n++) {
 			int i = cursor;
 			cursor = (cursor + 1) % placements.size();
 			Placement p = placements.get(i);
-			pos.set(origin.getX() + p.x(), origin.getY() + p.y(), origin.getZ() + p.z());
+			pos.set(t.x(p.x()), t.y(p.y()), t.z(p.z()));
 			BlockState actual = level.getBlockState(pos);
 			byte next = actual.equals(resolved.states()[i]) ? COMPLETED : actual.isAir() || actual.canBeReplaced() ? PENDING : CONFLICT;
 

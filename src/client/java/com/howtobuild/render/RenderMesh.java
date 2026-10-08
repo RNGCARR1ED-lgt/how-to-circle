@@ -108,14 +108,6 @@ public final class RenderMesh {
 			mergeFaces(b, g.direction(), g.plane(), entry.getValue(), g.color(), edgeColorByGroup.get(g));
 		}
 
-		if (config.showCentre) {
-			int accent = ARGB.color(220, 0xFF, 0xD2, 0x4D);
-
-			for (int[] c : resolved.result().centreCells()) {
-				b.box(c[0] + 0.32F, c[1] + 0.32F, c[2] + 0.32F, c[0] + 0.68F, c[1] + 0.68F, c[2] + 0.68F, accent, accent);
-			}
-		}
-
 		return b.build();
 	}
 

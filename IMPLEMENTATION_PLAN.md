@@ -318,3 +318,136 @@ ToolSettings ─► validate ─► generate ─► GeometryResult
 
 A new tool such as Cone or Arch gets the GUI, materials, details, labels, mirror, presets and command building with
 no changes outside its own class and one registry line.
+
+---
+
+# Part 2: Unified coordinate, centre and dimension pass
+
+This pass makes every tool use one coordinate, centre and dimension system. It is a focused refactor of the existing
+code, not a rewrite.
+
+## 17. Findings from inspecting the code (root causes)
+
+| Symptom | Actual cause |
+|---|---|
+| A 33 × 33 spiral overflows a 33 × 33 circle | The spiral builds its own disc of diameter `2 × outer_radius + 1` around the anchor block. It has no notion of the circle's width/length, cannot be even-sized, and measures angles from the anchor block centre instead of the shape's true centre. |
+| Spiral details stick out of the footprint | *Wall attachment* and *ring support* are drawn on a ring of radius `outer + 1`, one block outside the steps. |
+| Blocks below the base (Y − 1), and command builds destroying ground | The bottom **landing** is placed at `baseY − 1`. Preview and build both use the same geometry, so the command build faithfully replaced the ground under it. Nothing in the pipeline checks that base-anchored tools stay at or above their base layer. |
+| "Offset Y = −1" | The code has no hidden Y adjustment. Offset Y defaults to 0, and a legacy How to Circle config only migrates its own `verticalOffset`. A −1 is a value someone typed, most likely to compensate for the landing bug above. With the bug fixed, no compensation is needed. |
+| 2 × 2 centres drift after rotation | The pipeline rotates about the anchor block's centre `(x, z) → (−z, x)`. For an even extent the true centre is a block corner, so a 180° turn moves a 32 × 32 shape by one block. |
+| The centre is not visible | The centre marker is a 0.36-block cube drawn inside the depth-tested translucent mesh, so it disappears inside filled blocks. |
+| Offsets "removed" | Offset X and Z are only shown in Advanced mode, below the tool parameters. |
+| Forced 1×1 / 2×2 on the wrong parity | The size is silently grown by one, with only a yellow note. |
+| Corridor only builds blocks | `CorridorTool.usesMaterialTypes()` is false, so the Blocks / Slabs / Stairs selection is ignored. |
+
+## 18. The single source of truth
+
+```
+GeometryCenter (extents + alignment → min offset, 1×1/2×2 cells, doubled centre)
+      │
+CircularFootprint (exact ellipse cells of W × L around a GeometryCenter)
+      │                         │
+ Circle / Oval tools        Spiral (own diameter, or Follow Circle Dimensions)
+      │                         │
+GeometryResult (exact placements relative to the anchor, centre cells, guides)
+      │
+GeometryPipeline: rotation about the true centre (exact for 1×1 and 2×2 centres)
+      │
+WorldTransform: anchor (selected centre) + offset (X, Y, Z) = origin
+      │
+MirrorTransform → resolved BlockStates ──► hologram · labels · progress · /fill + /setblock · export
+```
+
+- **Dimension contract.** A dimension is the exact block extent of the generated footprint: 33 × 33 means the
+  bounds are exactly 33 × 33.
+- **Centre rule.** An odd extent has a 1-block centre and an even extent a 2-block centre, extending towards the
+  configured side. *Automatic* follows parity. A forced 1×1 or 2×2 on the wrong parity is now a validation error
+  with a fix suggestion, instead of silently growing the shape.
+- **Y rule.** Every tool declares a vertical anchor:
+  - **Base:** the anchor layer is the lowest layer. This applies to the cylinder, dome, spiral, corridor and floor
+    shapes. The pipeline reports a bug if a base-anchored tool emits anything below layer 0, and a unit test
+    enforces it for every tool.
+  - **Centre:** the anchor is the middle layer. This applies to the sphere and wall shapes.
+- **Offsets** are applied once, in `WorldTransform`, for every tool. Changing dimensions or tools never resets them.
+- **Preview = build.** The hologram, labels, progress tracking and command planner all consume the same resolved
+  placements. Tests compare the commands, expanded back to block positions, with the preview's positions.
+
+## 19. Spiral staircase changes
+
+**Footprint**
+- The footprint is a `CircularFootprint`. With its own size it is exactly `diameter × diameter`, odd or even.
+  The old `outer_radius` (always `2r + 1`) is gone; saved settings are migrated to the equivalent diameter.
+  Nothing rounds a size to odd: even sizes have a genuine 2 × 2 centre.
+- With **Follow Circle Dimensions** it uses the master shape's exact width × length, Circle or Oval.
+- **Copy from Circle tool** takes the size from the Circle tool. **Fit spiral to circle** turns following on,
+  copies the size and keeps every part inside.
+- Angles and stair facing are measured from the true (doubled) centre, so 2 × 2 spirals are symmetric.
+
+**Thickness**
+- Stair width grows inward from the fixed outer boundary (exact erosion, which also works for ovals).
+- A non-zero *inner radius* defines the hole instead. The values shown are the real ones.
+
+**Details**
+- Every detail is generated from the footprint: column = interior; wall or ring support = the footprint's outer ring,
+  with the steps moving inward.
+- *Allow details outside boundary* (off by default) restores the outer ring at radius + 1.
+- A final containment check warns about any cell outside the master footprint, and only when that option is on.
+  The geometry is never clipped silently.
+
+**Y**
+- The bottom landing sits at the base layer, and nothing goes below it.
+
+**Guide**
+- The master footprint's boundary is exported as a guide and drawn in a separate style.
+
+## 20. Corridor / arch materials
+
+- The corridor now uses Blocks / Slabs / Stairs, with an explicit part assignment: **structure**, **arch curve** and
+  **trim**, each Auto / Blocks / Slabs / Stairs.
+- Shaping happens in place, so the corridor's dimensions never change:
+  - **Stair facing:** corner cells of the curved zone become stairs facing the solid side. They are upside-down
+    under the curve (intrados) and upright on the roof (extrados).
+  - **Slab half:** curve or trim cells take their half from the exposed side (top slab under the curve, bottom slab
+    on top) or from the slab mode.
+- The vanilla stair-shape pass resolves corners afterwards.
+
+## 21. GUI
+
+**Layout**
+- The panel width is relative to the screen, with minimum and maximum widths.
+- The form uses two columns when there is room; sections are placed whole into the shorter column.
+- Section headers are collapsible.
+
+**Tabs**
+- Tabs: Geometry, **Center**, Materials, Details, Labels, Mirror, Build.
+
+**Center section** (also shown in the Geometry tab)
+- Center mode, centre coordinates, centre size and X / Y / Z offsets, always visible.
+- Select Center and My Position.
+- Debug bounds: min/max X/Z, width and length.
+
+**Spiral sections**
+- Shape, Circle Integration, Center, Staircase Parts.
+
+**Centre in the world**
+- A distinct pulsing outlined cube per centre cell, drawn through blocks; *Show centre* toggles it.
+- During centre selection the full 1×1 or 2×2 centre is previewed at the target.
+
+## 22. Tests added in this pass
+
+- **Exact sizes:** spirals of 1–8, 16, 30–34 and 64 blocks keep exactly that size, in both modes, with a 1×1 or
+  2×2 centre by parity, centred on the footprint and identical to the circle's centre.
+- **Spiral vs circle:**
+  - spiral ⊆ circle for 33 × 33 (and other odd, even and oval sizes, widths 1–5, all details);
+  - identical centre cells for 32 × 32;
+  - offsets move both identically.
+- **Y:** no base-anchored tool emits y < 0; offset Y = −1 moves everything down exactly one block.
+- **Rotation:** 2 × 2 shapes keep their centre cells and footprint under every rotation.
+- **Corridor:** all 7 material combinations keep the exact 6 × 10 × 20 bounds; stairs follow the curve (facing,
+  half) and slabs take the correct half.
+- **Preview = build:** the commands expanded back to positions equal the preview's world positions exactly, and no
+  y below the base.
+- **Client game test:**
+  - follow-circle in a real world;
+  - 2 × 2 centre rendering;
+  - a command-built spiral on solid ground leaves the ground untouched and matches the preview block for block.

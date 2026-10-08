@@ -118,7 +118,7 @@ class SpiralStaircaseTest {
 	@ParameterizedTest(name = "width {0}")
 	@ValueSource(ints = {1, 2, 3, 5})
 	void varyingWidthKeepsTheHole(int width) {
-		GeometryResult r = TestShapes.generate("spiral", TestShapes.types(ShapeKind.BLOCKS), "outer_radius", 6, "stair_width", width);
+		GeometryResult r = TestShapes.generate("spiral", TestShapes.types(ShapeKind.BLOCKS), "diameter", 13, "stair_width", width);
 		int inner = 6 - width;
 
 		for (Placement p : r.placements()) {
@@ -130,7 +130,7 @@ class SpiralStaircaseTest {
 
 	@Test
 	void invalidSettingsWarnInsteadOfCrashing() {
-		GeometryResult wide = TestShapes.generate("spiral", "outer_radius", 3, "stair_width", 6);
+		GeometryResult wide = TestShapes.generate("spiral", "diameter", 7, "stair_width", 6);
 		assertTrue(wide.warnings().stream().anyMatch(w -> w.contains("larger than the outer radius")));
 		GeometryResult flat = TestShapes.generate("spiral", "height", 4, "revolutions", 4);
 		assertTrue(flat.warnings().stream().anyMatch(w -> w.contains("headroom")));
@@ -142,11 +142,14 @@ class SpiralStaircaseTest {
 	@Test
 	void detailsAreGenerated() {
 		GeometryResult r = TestShapes.generate("spiral", TestShapes.details(DetailFeature.CENTRAL_COLUMN, DetailFeature.OUTER_RAIL,
-				DetailFeature.LANDING, DetailFeature.SUPPORT_PILLARS, DetailFeature.WALL_ATTACHMENT), "outer_radius", 6, "stair_width", 3);
+				DetailFeature.LANDING, DetailFeature.SUPPORT_PILLARS, DetailFeature.WALL_ATTACHMENT), "diameter", 13, "stair_width", 3);
 		assertTrue(r.count(MaterialRole.RAIL) > 0);
 		assertTrue(r.count(MaterialRole.FLOOR) > 0);
 		assertTrue(r.at(0, 5, 0) != null, "central column");
-		assertEquals(2 * 6 + 3, r.width(), "wall attachment surrounds the stairs");
+		assertEquals(2 * 6 + 1, r.width(), "the wall takes the footprint's outer ring; nothing goes outside it");
+		GeometryResult outside = TestShapes.generate("spiral", TestShapes.details(DetailFeature.WALL_ATTACHMENT), "diameter", 13,
+				"stair_width", 3, "allow_outside", true);
+		assertEquals(2 * 6 + 3, outside.width(), "with Allow details outside boundary the wall surrounds the footprint");
 	}
 
 	private static void assertHeightRises(GeometryResult r) {

@@ -49,6 +49,8 @@ public final class HowToBuildConfig {
 	public String tab = "GEOMETRY";
 	public boolean advanced = false;
 	public List<String> favorites = new ArrayList<>(List.of("circle", "spiral"));
+	/** GUI sections the player collapsed (by section key). */
+	public List<String> collapsedSections = new ArrayList<>();
 
 	// Per-tool parameter values (raw strings, sanitised against each tool's parameter definitions).
 	public Map<String, Map<String, String>> toolSettings = new LinkedHashMap<>();
@@ -154,8 +156,11 @@ public final class HowToBuildConfig {
 		if (ToolRegistry.byId(tool).isEmpty()) tool = "circle";
 		if (tab == null) tab = "GEOMETRY";
 		if (favorites == null) favorites = new ArrayList<>();
+		if (collapsedSections == null) collapsedSections = new ArrayList<>();
 		favorites.removeIf(id -> id == null || ToolRegistry.byId(id).isEmpty());
 		if (toolSettings == null) toolSettings = new LinkedHashMap<>();
+
+		migrateSpiralRadius();
 
 		for (BuildTool t : ToolRegistry.all()) {
 			toolSettings.put(t.id(), new LinkedHashMap<>(settings(t).asMap()));
@@ -202,6 +207,26 @@ public final class HowToBuildConfig {
 		build.sanitize();
 		if (hologram == null) hologram = new HologramConfig();
 		hologram.sanitize();
+	}
+
+	/**
+	 * Earlier versions sized the spiral by an outer radius r (always 2r + 1 blocks across, or 2r with a forced 2×2
+	 * centre). The spiral is now sized by its exact diameter; keep existing staircases the same size.
+	 */
+	private void migrateSpiralRadius() {
+		Map<String, String> spiral = toolSettings.get("spiral");
+
+		if (spiral == null || !spiral.containsKey("outer_radius") || spiral.containsKey("diameter")) return;
+
+		try {
+			int r = Integer.parseInt(spiral.get("outer_radius").trim());
+			boolean twoByTwo = "TWO_BY_TWO".equals(spiral.get("centre_size"));
+			spiral.put("diameter", Integer.toString(twoByTwo ? 2 * r : 2 * r + 1));
+		} catch (NumberFormatException e) {
+			// Leave the default diameter.
+		}
+
+		spiral.remove("outer_radius");
 	}
 
 	private static int clamp(int v, int min, int max) {
@@ -251,6 +276,7 @@ public final class HowToBuildConfig {
 		json.remove("tab");
 		json.remove("advanced");
 		json.remove("favorites");
+		json.remove("collapsedSections");
 		return json;
 	}
 

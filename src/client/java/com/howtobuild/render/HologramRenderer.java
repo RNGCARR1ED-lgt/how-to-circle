@@ -3,6 +3,8 @@ package com.howtobuild.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
+import java.util.List;
+
 import org.jspecify.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
@@ -37,6 +39,8 @@ public final class HologramRenderer {
 	private static final float FACE_LIFT = 0.015F;
 	private static final float TICK = 0.15F;
 	private static final int MIRROR_COLOR = 0xB070FF;
+	private static final int CENTRE_COLOR = 0xFFB020;
+	private static final int GUIDE_COLOR = 0xE8F8FF;
 
 	private HologramRenderer() {
 	}
@@ -52,7 +56,7 @@ public final class HologramRenderer {
 			RenderMesh mesh = session.mesh();
 
 			if (resolved != null && mesh != null) {
-				BlockPos o = resolved.anchor();
+				BlockPos o = resolved.origin();
 				float camX = (float) (camera.x - o.getX());
 				float camY = (float) (camera.y - o.getY());
 				float camZ = (float) (camera.z - o.getZ());
@@ -79,6 +83,20 @@ public final class HologramRenderer {
 							new Emitter(pose, buffer).dimensionLines(labels, labelSettings, camX, camY, camZ));
 				}
 
+				boolean showCentre = config.hologram.showCentre || CentreSelectionHandler.get().isActive();
+				List<int[]> centres = showCentre ? resolved.result().centreCells() : List.of();
+				List<int[]> guides = config.hologram.showGuides ? resolved.result().guides() : List.of();
+
+				if (!centres.isEmpty() || !guides.isEmpty()) {
+					float pulse = 0.5F + 0.5F * (float) Math.sin(System.currentTimeMillis() / 220.0);
+					// Drawn through blocks so the centre and the master outline are never hidden inside the structure.
+					context.submitNodeCollector().submitCustomGeometry(poseStack, HologramRenderTypes.hologram(true), (pose, buffer) -> {
+						Emitter e = new Emitter(pose, buffer);
+						e.guides(guides);
+						e.centres(centres, pulse, CENTRE_COLOR);
+					});
+				}
+
 				poseStack.popPose();
 			}
 		}
@@ -87,11 +105,11 @@ public final class HologramRenderer {
 		BlockPos marker = selection.markerPos();
 
 		if (marker != null) {
-			renderSelectionMarker(context, camera, marker, selection.previewBounds(), selection.markerColor());
+			renderSelectionMarker(context, camera, marker, selection.previewBounds(), selection.previewCentres(), selection.markerColor());
 		}
 	}
 
-	private static void renderSelectionMarker(LevelRenderContext context, Vec3 camera, BlockPos marker, @Nullable Box preview, int rgb) {
+	private static void renderSelectionMarker(LevelRenderContext context, Vec3 camera, BlockPos marker, @Nullable Box preview, List<int[]> centres, int rgb) {
 		PoseStack poseStack = context.poseStack();
 		float pulse = 0.5F + 0.5F * (float) Math.sin(System.currentTimeMillis() / 180.0);
 		int fill = ARGB.color(Math.round(70 + 60 * pulse), ARGB.red(rgb), ARGB.green(rgb), ARGB.blue(rgb));
@@ -104,6 +122,9 @@ public final class HologramRenderer {
 			float grow = 0.04F * pulse;
 			e.box(0.2F - grow, 0.2F - grow, 0.2F - grow, 0.8F + grow, 0.8F + grow, 0.8F + grow, fill);
 			e.boxEdges(-0.01F, -0.01F, -0.01F, 1.01F, 1.01F, 1.01F, 0.035F, edge);
+
+			// The full 1×1 / 2×2 centre the shape would get here (including the configured offset).
+			e.centres(centres, pulse, rgb);
 
 			if (preview != null) {
 				// Footprint of the shape that would be generated here.
@@ -177,6 +198,52 @@ public final class HologramRenderer {
 
 		private static int lerp(int from, int to, float t) {
 			return Math.round(from + (to - from) * t);
+		}
+
+		/**
+		 * The centre cells as glowing outlined cubes, slightly larger than a block, plus a vertical beam through the true
+		 * centre (a block's middle for 1×1, the shared corner for 2×2) so it is obvious where the centre is.
+		 */
+		void centres(List<int[]> cells, float pulse, int rgb) {
+			if (cells.isEmpty()) return;
+
+			int fill = ARGB.color(Math.round(55 + 45 * pulse), ARGB.red(rgb), ARGB.green(rgb), ARGB.blue(rgb));
+			int edge = ARGB.color(255, Math.min(255, ARGB.red(rgb) + 40), Math.min(255, ARGB.green(rgb) + 40), Math.min(255, ARGB.blue(rgb) + 40));
+			float minX = Float.MAX_VALUE;
+			float maxX = -Float.MAX_VALUE;
+			float minZ = Float.MAX_VALUE;
+			float maxZ = -Float.MAX_VALUE;
+			float y = Float.MAX_VALUE;
+
+			for (int[] c : cells) {
+				float g = 0.03F + 0.02F * pulse;
+				box(c[0] - g, c[1] - g, c[2] - g, c[0] + 1 + g, c[1] + 1 + g, c[2] + 1 + g, fill);
+				boxEdges(c[0] - g, c[1] - g, c[2] - g, c[0] + 1 + g, c[1] + 1 + g, c[2] + 1 + g, 0.05F, edge);
+				minX = Math.min(minX, c[0]);
+				maxX = Math.max(maxX, c[0] + 1);
+				minZ = Math.min(minZ, c[2]);
+				maxZ = Math.max(maxZ, c[2] + 1);
+				y = Math.min(y, c[1]);
+			}
+
+			float cx = (minX + maxX) / 2;
+			float cz = (minZ + maxZ) / 2;
+			segment(cx, y, cz, cx, y + 4, cz, 0.06F, edge);
+		}
+
+		/** Reference outline cells (e.g. the master circle a spiral follows): thin squares on the floor of each cell. */
+		void guides(List<int[]> cells) {
+			int fill = ARGB.color(40, ARGB.red(GUIDE_COLOR), ARGB.green(GUIDE_COLOR), ARGB.blue(GUIDE_COLOR));
+			int edge = ARGB.color(220, ARGB.red(GUIDE_COLOR), ARGB.green(GUIDE_COLOR), ARGB.blue(GUIDE_COLOR));
+
+			for (int[] c : cells) {
+				float y = c[1] + 0.02F;
+				flat(0, c[0], c[0] + 1, 2, c[2], c[2] + 1, 1, y, fill);
+				flat(0, c[0], c[0] + 1, 2, c[2], c[2] + 0.06F, 1, y, edge);
+				flat(0, c[0], c[0] + 1, 2, c[2] + 0.94F, c[2] + 1, 1, y, edge);
+				flat(0, c[0], c[0] + 0.06F, 2, c[2], c[2] + 1, 1, y, edge);
+				flat(0, c[0] + 0.94F, c[0] + 1, 2, c[2], c[2] + 1, 1, y, edge);
+			}
 		}
 
 		/** Translucent sheets showing where each mirror plane lies, spanning the preview's height and extent. */

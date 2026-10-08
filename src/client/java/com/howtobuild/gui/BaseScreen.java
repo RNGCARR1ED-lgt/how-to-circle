@@ -163,7 +163,7 @@ abstract class BaseScreen extends Screen {
 	 * input is applied immediately so the hologram updates while typing.
 	 */
 	protected EditBox number(int x, int y, int w, String labelKey, int min, int max, IntSupplier get, IntConsumer set, @Nullable String tooltipKey) {
-		int labelWidth = Math.min(w / 2, Math.max(40, font.width(Component.translatable(labelKey).getString()) + 6));
+		int labelWidth = Math.min(w / 2, Math.max(12, font.width(Component.translatable(labelKey).getString()) + 6));
 		int fieldWidth = w - labelWidth - 2 * 18;
 		boolean[] valid = {true};
 		text(x, y + 6, labelWidth - 4, () -> Component.translatable(labelKey).getString(), () -> valid[0] ? MUTED : ERROR);

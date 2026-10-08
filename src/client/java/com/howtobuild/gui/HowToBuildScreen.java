@@ -68,6 +68,7 @@ import com.howtobuild.transform.MirrorMode;
 public final class HowToBuildScreen extends BaseScreen {
 	enum Tab {
 		GEOMETRY,
+		CENTER,
 		MATERIALS,
 		DETAILS,
 		LABELS,
@@ -75,15 +76,35 @@ public final class HowToBuildScreen extends BaseScreen {
 		BUILD
 	}
 
-	private static final int TOOL_COLUMN = 104;
-	private static final int HEADER_ROW = 14;
+	private static final int HEADER_ROW = 16;
+	private static final int COLUMN_GAP = 10;
+	private static final int TWO_COLUMN_MIN = 500;
 	private static final String[] UNITS = {"", " blocks", " m"};
 
 	private interface RowBuilder {
 		void build(int x, int y, int w);
 	}
 
-	private record Row(int height, RowBuilder builder) {
+	/** A form row; header rows carry the key of the section they start (used for columns and collapsing). */
+	private record Row(int height, RowBuilder builder, String header) {
+		Row(int height, RowBuilder builder) {
+			this(height, builder, null);
+		}
+	}
+
+	/** A section: its header (or none) and its rows, placed whole into one column. */
+	private record Section(Row header, List<Row> rows) {
+		int height(boolean collapsed) {
+			int h = header == null ? 0 : header.height();
+
+			if (!collapsed) {
+				for (Row r : rows) {
+					h += r.height();
+				}
+			}
+
+			return h + 4;
+		}
 	}
 
 	private int scroll;
@@ -92,7 +113,11 @@ public final class HowToBuildScreen extends BaseScreen {
 	private int formY;
 	private int formW;
 	private int formH;
+	private int colW;
+	private int toolColumn = 104;
 	private boolean help;
+	private final List<int[]> headerAreas = new ArrayList<>();
+	private final List<String> headerKeys = new ArrayList<>();
 	private String hoverInfo = "";
 	private final List<int[]> slots = new ArrayList<>();
 	private final List<Runnable> slotActions = new ArrayList<>();
@@ -123,24 +148,30 @@ public final class HowToBuildScreen extends BaseScreen {
 		slots.clear();
 		slotActions.clear();
 		slotNames.clear();
-		int panelW = Math.min(this.width - 16, 440);
+		headerAreas.clear();
+		headerKeys.clear();
+		// Responsive: about two thirds of the screen (the rest shows the live hologram), within sensible limits.
+		int panelW = Math.min(this.width - 16, Math.max(360, Math.min(820, Math.round(this.width * 0.68F))));
 		int left = 8;
 		int top = 22;
 		int bottom = this.height - 28;
+		toolColumn = Math.max(96, Math.min(140, panelW / 5));
 		panel(left, top, left + panelW, bottom);
 		centredText(left + panelW / 2, 8, panelW, () -> Component.translatable("gui.howtobuild.title").getString(), () -> ACCENT);
 
 		buildToolList(left + PADDING, top + PADDING, bottom - PADDING);
 
-		int cx = left + TOOL_COLUMN + PADDING * 2;
-		int cw = panelW - TOOL_COLUMN - PADDING * 3;
+		int cx = left + toolColumn + PADDING * 2;
+		int cw = panelW - toolColumn - PADDING * 3;
 		buildTabs(cx, top + PADDING, cw);
 
 		formX = cx;
 		formY = top + PADDING + CONTROL_HEIGHT + 6;
 		formW = cw;
 		formH = bottom - 36 - formY;
-		buildForm();
+		int columns = formW >= TWO_COLUMN_MIN ? 2 : 1;
+		colW = (formW - 6 - COLUMN_GAP * (columns - 1)) / columns;
+		buildForm(columns);
 		buildStatus(cx, bottom - 34, cw);
 		buildBottomBar(left, this.height - 24, panelW);
 	}
@@ -153,30 +184,30 @@ public final class HowToBuildScreen extends BaseScreen {
 		tools.sort((a, b) -> Boolean.compare(!favourites.contains(a.id()), !favourites.contains(b.id())));
 		int rows = tools.size() + 3;
 		int rowH = Math.max(14, Math.min(20, (bottom - y - 14) / rows));
-		text(x, y + 2, TOOL_COLUMN, Component.translatable("gui.howtobuild.tools").getString(), ACCENT);
+		text(x, y + 2, toolColumn, Component.translatable("gui.howtobuild.tools").getString(), ACCENT);
 		y += 14;
 
 		for (BuildTool tool : tools) {
 			boolean selected = tool.id().equals(config().tool);
 			boolean favourite = favourites.contains(tool.id());
 			Component name = Component.literal(selected ? "▶ " : "").append(Component.translatable(tool.translationKey()));
-			Button b = widget(Button.builder(name, btn -> selectTool(tool)).bounds(x, y, TOOL_COLUMN - 18, rowH).build());
+			Button b = widget(Button.builder(name, btn -> selectTool(tool)).bounds(x, y, toolColumn - 18, rowH).build());
 			var tip = tooltip(tool.translationKey() + ".desc");
 
 			if (tip != null) b.setTooltip(tip);
 
 			widget(Button.builder(Component.literal(favourite ? "★" : "☆"), btn -> toggleFavourite(tool.id()))
-					.bounds(x + TOOL_COLUMN - 17, y, 17, rowH).tooltip(net.minecraft.client.gui.components.Tooltip.create(
+					.bounds(x + toolColumn - 17, y, 17, rowH).tooltip(net.minecraft.client.gui.components.Tooltip.create(
 							Component.translatable("gui.howtobuild.favourite"))).build());
 			y += rowH + 1;
 		}
 
 		// Mirror is a transform rather than a shape; its entry opens the Mirror tab.
 		widget(Button.builder(Component.translatable("tool.howtobuild.mirror"), btn -> setTab(Tab.MIRROR))
-				.bounds(x, y, TOOL_COLUMN, rowH).tooltip(net.minecraft.client.gui.components.Tooltip.create(
+				.bounds(x, y, toolColumn, rowH).tooltip(net.minecraft.client.gui.components.Tooltip.create(
 						Component.translatable("tool.howtobuild.mirror.desc"))).build());
 		y += rowH + 4;
-		dynamicButton(x, y, TOOL_COLUMN, () -> Component.translatable(config().advanced ? "gui.howtobuild.mode.advanced" : "gui.howtobuild.mode.simple"),
+		dynamicButton(x, y, toolColumn, () -> Component.translatable(config().advanced ? "gui.howtobuild.mode.advanced" : "gui.howtobuild.mode.simple"),
 				() -> {
 					config().advanced = !config().advanced;
 					rebuild();
@@ -223,35 +254,95 @@ public final class HowToBuildScreen extends BaseScreen {
 
 	// ----------------------------------------------------------------- form
 
-	private void buildForm() {
+	private void buildForm(int columns) {
 		List<Row> rows = switch (tab()) {
 			case GEOMETRY -> geometryRows();
+			case CENTER -> centreTabRows();
 			case MATERIALS -> materialRows();
 			case DETAILS -> detailRows();
 			case LABELS -> labelRows();
 			case MIRROR -> mirrorRows();
 			case BUILD -> buildRows();
 		};
-		contentHeight = 0;
+
+		// Split into sections at header rows; each section goes whole into the currently shorter column.
+		List<Section> sections = new ArrayList<>();
+		Section current = new Section(null, new ArrayList<>());
 
 		for (Row row : rows) {
-			contentHeight += row.height();
+			if (row.header() != null) {
+				if (current.header() != null || !current.rows().isEmpty()) sections.add(current);
+				current = new Section(row, new ArrayList<>());
+			} else {
+				current.rows().add(row);
+			}
+		}
+
+		if (current.header() != null || !current.rows().isEmpty()) sections.add(current);
+
+		int[] heights = new int[columns];
+		List<List<Section>> placed = new ArrayList<>();
+
+		for (int i = 0; i < columns; i++) {
+			placed.add(new ArrayList<>());
+		}
+
+		for (Section section : sections) {
+			int column = 0;
+
+			for (int i = 1; i < columns; i++) {
+				if (heights[i] < heights[column]) column = i;
+			}
+
+			// The untitled introduction stays on top of the first column.
+			if (section.header() == null) column = 0;
+
+			placed.get(column).add(section);
+			heights[column] += section.height(collapsed(section));
+		}
+
+		contentHeight = 0;
+
+		for (int h : heights) {
+			contentHeight = Math.max(contentHeight, h);
 		}
 
 		scroll = Math.max(0, Math.min(scroll, Math.max(0, contentHeight - formH)));
-		int y = formY - scroll;
 
-		for (Row row : rows) {
-			if (y >= formY && y + row.height() <= formY + formH) {
-				row.builder().build(formX, y, formW - 6);
+		for (int column = 0; column < columns; column++) {
+			int x = formX + column * (colW + COLUMN_GAP);
+			int y = formY - scroll;
+
+			for (Section section : placed.get(column)) {
+				boolean collapsed = collapsed(section);
+				List<Row> visible = new ArrayList<>();
+
+				if (section.header() != null) visible.add(section.header());
+				if (!collapsed) visible.addAll(section.rows());
+
+				for (Row row : visible) {
+					if (y >= formY && y + row.height() <= formY + formH) row.builder().build(x, y, colW);
+
+					y += row.height();
+				}
+
+				y += 4;
 			}
-
-			y += row.height();
 		}
 	}
 
+	private boolean collapsed(Section section) {
+		return section.header() != null && config().collapsedSections.contains(section.header().header());
+	}
+
+	/** A collapsible section header: click to fold or unfold the section. */
 	private Row header(String key) {
-		return new Row(HEADER_ROW, (x, y, w) -> text(x, y + 4, w, Component.translatable(key).getString(), ACCENT));
+		return new Row(HEADER_ROW, (x, y, w) -> {
+			boolean folded = config().collapsedSections.contains(key);
+			text(x, y + 4, w, (folded ? "▶ " : "▼ ") + Component.translatable(key).getString(), ACCENT);
+			headerAreas.add(new int[] {x, y, w, HEADER_ROW});
+			headerKeys.add(key);
+		}, key);
 	}
 
 	private Row note(String text, int color) {
@@ -272,7 +363,7 @@ public final class HowToBuildScreen extends BaseScreen {
 	}
 
 	private void wrapNotes(List<Row> rows, String text, int color) {
-		for (String line : wrap(text, formW - 8)) {
+		for (String line : wrap(text, colW - 4)) {
 			rows.add(note(line, color));
 		}
 	}
@@ -288,15 +379,20 @@ public final class HowToBuildScreen extends BaseScreen {
 		String section = null;
 
 		for (ToolParameter p : tool.parameters()) {
-			if (!p.isVisible(settings) || p.isAdvanced() && !c.advanced) continue;
+			// Centre parameters live in the shared Center section below.
+			if (p.sectionKey().equals("centre") || !p.isVisible(settings) || p.isAdvanced() && !c.advanced) continue;
 
 			if (!p.sectionKey().equals(section)) {
+				if ("circle".equals(section)) rows.add(circleButtons(tool));
+
 				section = p.sectionKey();
 				rows.add(header("section.howtobuild." + section));
 			}
 
 			rows.add(row((x, y, w) -> parameter(tool, p, x, y, w)));
 		}
+
+		if ("circle".equals(section)) rows.add(circleButtons(tool));
 
 		if (tool.usesMaterialTypes()) {
 			rows.add(header("gui.howtobuild.material_types"));
@@ -326,18 +422,65 @@ public final class HowToBuildScreen extends BaseScreen {
 			}
 		}
 
-		rows.add(header("gui.howtobuild.placement"));
+		rows.addAll(centreRows(false));
 
 		if (tool instanceof Rotatable) {
+			rows.add(header("gui.howtobuild.placement"));
 			rows.add(row((x, y, w) -> dynamicButton(x, y, w, () -> Component.translatable("gui.howtobuild.rotation", c.rotation * 90),
 					() -> c.rotation = (c.rotation + 1) & 3, "gui.howtobuild.rotation.tooltip")));
 		}
 
-		rows.add(row((x, y, w) -> number(x, y, w, "gui.howtobuild.offset_y", -512, 512, () -> c.offsetY, v -> c.offsetY = v, "gui.howtobuild.offset.tooltip")));
+		return rows;
+	}
 
-		if (c.advanced) {
-			rows.add(pair((x, y, w) -> number(x, y, w, "gui.howtobuild.offset_x", -512, 512, () -> c.offsetX, v -> c.offsetX = v, "gui.howtobuild.offset.tooltip"),
-					(x, y, w) -> number(x, y, w, "gui.howtobuild.offset_z", -512, 512, () -> c.offsetZ, v -> c.offsetZ = v, "gui.howtobuild.offset.tooltip")));
+	/** The Center tab: the shared centre section plus how the centre is shown in the world. */
+	private List<Row> centreTabRows() {
+		HowToBuildConfig c = config();
+		List<Row> rows = centreRows(true);
+		rows.add(header("gui.howtobuild.centre.display"));
+		rows.add(pair((x, y, w) -> toggle(x, y, w, "gui.howtobuild.hologram.centre", () -> c.hologram.showCentre, v -> c.hologram.showCentre = v,
+						"gui.howtobuild.hologram.centre.tooltip", false),
+				(x, y, w) -> toggle(x, y, w, "gui.howtobuild.hologram.guides", () -> c.hologram.showGuides, v -> c.hologram.showGuides = v,
+						"gui.howtobuild.hologram.guides.tooltip", false)));
+		rows.add(row((x, y, w) -> toggle(x, y, w, "gui.howtobuild.debug", () -> c.hologram.debug, v -> c.hologram.debug = v,
+				"gui.howtobuild.debug.tooltip", false)));
+		return rows;
+	}
+
+	/**
+	 * The shared Center section, identical for every tool: centre mode, the selected centre's coordinates and size, the
+	 * X / Y / Z offset (always visible), Select Center / My Position, and the exact resulting bounds.
+	 */
+	private List<Row> centreRows(boolean full) {
+		HowToBuildConfig c = config();
+		BuildTool tool = c.activeTool();
+		ToolSettings settings = c.settings(tool);
+		List<Row> rows = new ArrayList<>();
+		rows.add(header("gui.howtobuild.centre"));
+
+		for (ToolParameter p : tool.parameters()) {
+			if (p.sectionKey().equals("centre") && p.isVisible(settings) && (!p.isAdvanced() || c.advanced)) {
+				rows.add(row((x, y, w) -> parameter(tool, p, x, y, w)));
+			}
+		}
+
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, this::centreLine, () -> BuildSession.get().hasAnchor() ? TEXT : MUTED)));
+		rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, this::centreSizeLine, () -> MUTED)));
+		rows.add(row((x, y, w) -> {
+			int third = (w - 8) / 3;
+			number(x, y, third, "gui.howtobuild.offset_x", -512, 512, () -> c.offsetX, v -> c.offsetX = v, "gui.howtobuild.offset.tooltip");
+			number(x + third + 4, y, third, "gui.howtobuild.offset_y", -512, 512, () -> c.offsetY, v -> c.offsetY = v, "gui.howtobuild.offset.tooltip");
+			number(x + 2 * (third + 4), y, w - 2 * (third + 4), "gui.howtobuild.offset_z", -512, 512, () -> c.offsetZ, v -> c.offsetZ = v,
+					"gui.howtobuild.offset.tooltip");
+		}));
+		rows.add(pair((x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.select_centre"), this::selectCentre,
+						"gui.howtobuild.select_centre.tooltip"),
+				(x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.use_position"), () -> {
+					BuildSession.get().setAnchorToPlayer();
+					refresh();
+				}, "gui.howtobuild.use_position.tooltip")));
+
+		if (full || c.advanced) {
 			rows.add(pair((x, y, w) -> dynamicButton(x, y, w, () -> Component.translatable("gui.howtobuild.align_x", c.alignX ? "+X" : "−X"),
 							() -> c.alignX = !c.alignX, "gui.howtobuild.align.tooltip"),
 					(x, y, w) -> dynamicButton(x, y, w, () -> Component.translatable("gui.howtobuild.align_z", c.alignZ ? "+Z" : "−Z"),
@@ -348,7 +491,114 @@ public final class HowToBuildScreen extends BaseScreen {
 							"gui.howtobuild.lock_centre.tooltip", false)));
 		}
 
+		if (full || c.hologram.debug) {
+			rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> debugLine(0), () -> MUTED)));
+			rows.add(new Row(12, (x, y, w) -> text(x, y + 2, w, () -> debugLine(1), () -> MUTED)));
+		}
+
 		return rows;
+	}
+
+	private void selectCentre() {
+		CentreSelectionHandler.get().start(CentreSelectionHandler.Target.SHAPE, true);
+		onClose();
+	}
+
+	/** "Center: X 147 · Y 77 · Z -55" (plus the effective origin when an offset is set). */
+	private String centreLine() {
+		BuildSession session = BuildSession.get();
+		BlockPos anchor = session.hasAnchor() ? session.anchor() : null;
+
+		if (anchor == null) return Component.translatable("gui.howtobuild.status.no_centre").getString();
+
+		String text = Component.translatable("gui.howtobuild.centre.at", anchor.getX(), anchor.getY(), anchor.getZ()).getString();
+		BlockPos origin = session.origin();
+
+		if (origin != null && !origin.equals(anchor)) {
+			text += " → " + Component.translatable("gui.howtobuild.centre.origin", origin.getX(), origin.getY(), origin.getZ()).getString();
+		}
+
+		return text;
+	}
+
+	/** "Center size: 2 × 2 · Y 77 is the base layer". */
+	private String centreSizeLine() {
+		GeometryResult g = BuildSession.get().geometry();
+
+		if (g == null || g.centreCells().isEmpty()) return "";
+
+		long xs = g.centreCells().stream().mapToInt(c -> c[0]).distinct().count();
+		long zs = g.centreCells().stream().mapToInt(c -> c[2]).distinct().count();
+		BuildTool tool = config().activeTool();
+		String layer = Component.translatable(tool.verticalAnchor(config().settings(tool)) == com.howtobuild.tools.VerticalAnchor.BASE
+				? "gui.howtobuild.centre.base_layer" : "gui.howtobuild.centre.middle_layer").getString();
+		return Component.translatable("gui.howtobuild.centre.size", xs + " × " + zs).getString() + " · " + layer;
+	}
+
+	/** Exact world bounds of the preview: line 0 min/max X and Z, line 1 sizes. */
+	private String debugLine(int line) {
+		BuildSession.Resolved r = BuildSession.get().resolved();
+		Box b = r == null ? null : r.result().bounds();
+
+		if (b == null) return "";
+
+		var t = r.transform();
+
+		if (line == 0) {
+			return Component.translatable("gui.howtobuild.debug.bounds", t.x(b.minX()), t.x(b.maxX()), t.z(b.minZ()), t.z(b.maxZ()), t.y(b.minY()), t.y(b.maxY()))
+					.getString();
+		}
+
+		return Component.translatable("gui.howtobuild.debug.size", b.sizeX(), b.sizeZ(), b.sizeY(), r.result().blockCount()).getString();
+	}
+
+	/** Spiral: copy the master circle's size from the Circle / Oval tool, or fit the whole staircase into it. */
+	private Row circleButtons(BuildTool tool) {
+		return pair((x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.circle.copy"), () -> {
+					copyCircleDimensions(tool, false);
+					rebuild();
+				}, "gui.howtobuild.circle.copy.tooltip"),
+				(x, y, w) -> button(x, y, w, Component.translatable("gui.howtobuild.circle.fit"), () -> {
+					copyCircleDimensions(tool, true);
+					rebuild();
+				}, "gui.howtobuild.circle.fit.tooltip"));
+	}
+
+	/**
+	 * Takes the master footprint from the Circle tool (or the Oval tool when the master shape is an oval) and turns on
+	 * Follow Circle Dimensions. With {@code fit}, also keeps every detail inside, uses the automatic centre and limits
+	 * the stair width / inner radius so there is room for steps.
+	 */
+	void copyCircleDimensions(BuildTool spiral, boolean fit) {
+		HowToBuildConfig c = config();
+		ToolSettings s = c.settings(spiral);
+		boolean oval = "OVAL".equals(s.raw("master_shape"));
+		int width;
+		int length;
+
+		if (oval) {
+			ToolSettings o = c.settings(ToolRegistry.get("oval"));
+			width = o.getInt("width");
+			length = o.getInt("length");
+		} else {
+			width = c.settings(ToolRegistry.get("circle")).getInt("size");
+			length = width;
+		}
+
+		c.setSetting(spiral, "follow_circle", "true");
+		c.setSetting(spiral, "circle_width", Integer.toString(width));
+		c.setSetting(spiral, "circle_length", Integer.toString(length));
+
+		if (fit) {
+			int half = Math.max(1, Math.min(width, length) / 2);
+			c.setSetting(spiral, "allow_outside", "false");
+			c.setSetting(spiral, "centre_size", "AUTO");
+			c.setSetting(spiral, "stair_width", Integer.toString(Math.max(1, Math.min(s.getInt("stair_width"), half - 1))));
+
+			if (s.getInt("inner_radius") >= half) c.setSetting(spiral, "inner_radius", Integer.toString(Math.max(0, half - 2)));
+		}
+
+		HowToBuildConfig.save();
 	}
 
 	private void parameter(BuildTool tool, ToolParameter p, int x, int y, int w) {
@@ -357,8 +607,13 @@ public final class HowToBuildScreen extends BaseScreen {
 		switch (p.type()) {
 			case INT -> number(x, y, w, p.labelKey(), p.min(), p.max(), () -> c.settings(tool).getInt(p.id()),
 					v -> c.setSetting(tool, p.id(), Integer.toString(v)), p.tooltipKey());
-			case BOOL -> toggle(x, y, w, p.labelKey(), () -> c.settings(tool).getBool(p.id()), v -> c.setSetting(tool, p.id(), Boolean.toString(v)),
-					p.tooltipKey(), true);
+			case BOOL -> toggle(x, y, w, p.labelKey(), () -> c.settings(tool).getBool(p.id()), v -> {
+				if (p.id().equals("follow_circle") && v) {
+					copyCircleDimensions(tool, false);
+				} else {
+					c.setSetting(tool, p.id(), Boolean.toString(v));
+				}
+			}, p.tooltipKey(), true);
 			case ENUM -> dynamicButton(x, y, w, () -> Component.translatable(p.labelKey()).append(": ")
 					.append(Component.translatable(ToolParameter.optionKey(c.settings(tool).raw(p.id())))), () -> {
 				List<String> options = p.options();
@@ -757,12 +1012,10 @@ public final class HowToBuildScreen extends BaseScreen {
 	}
 
 	private void buildBottomBar(int x, int y, int panelW) {
-		int w = Math.min(84, (this.width - 16) / 8);
+		// Sized relative to the panel: eight buttons share its width, within limits.
+		int w = Math.max(50, Math.min(100, (panelW - 60) / 8));
 		int gap = 3;
-		button(x, y, w, Component.translatable("gui.howtobuild.select_centre"), () -> {
-			CentreSelectionHandler.get().start(CentreSelectionHandler.Target.SHAPE, true);
-			onClose();
-		}, "gui.howtobuild.select_centre.tooltip");
+		button(x, y, w, Component.translatable("gui.howtobuild.select_centre"), this::selectCentre, "gui.howtobuild.select_centre.tooltip");
 		x += w + gap;
 		button(x, y, w, Component.translatable("gui.howtobuild.use_position"), () -> {
 			BuildSession.get().setAnchorToPlayer();
@@ -779,7 +1032,7 @@ public final class HowToBuildScreen extends BaseScreen {
 		x += w + gap;
 		button(x, y, w, Component.translatable("gui.howtobuild.build_button"), this::openBuild, "gui.howtobuild.build_button.tooltip");
 		x += w + gap + 6;
-		int small = Math.max(20, Math.min(50, (this.width - 8 - x) / 3 - gap));
+		int small = Math.max(20, Math.min(w, (this.width - 8 - x) / 3 - gap));
 		button(x, y, small, Component.translatable("gui.howtobuild.presets"), () -> minecraft.gui.setScreen(new PresetScreen(this)), "gui.howtobuild.presets.tooltip");
 		x += small + gap;
 		dynamicButton(x, y, Math.min(small, 20), () -> Component.literal(help ? "×" : "?"), () -> help = !help, "gui.howtobuild.help.tooltip");
@@ -845,6 +1098,19 @@ public final class HowToBuildScreen extends BaseScreen {
 		}
 
 		if (event.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+			for (int i = 0; i < headerAreas.size(); i++) {
+				int[] a = headerAreas.get(i);
+
+				if (inside(event.x(), event.y(), a[0], a[1], a[2], a[3])) {
+					List<String> collapsed = config().collapsedSections;
+
+					if (!collapsed.remove(headerKeys.get(i))) collapsed.add(headerKeys.get(i));
+
+					rebuild();
+					return true;
+				}
+			}
+
 			for (int i = 0; i < slots.size(); i++) {
 				int[] s = slots.get(i);
 

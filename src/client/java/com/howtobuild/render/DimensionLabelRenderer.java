@@ -114,7 +114,7 @@ public final class DimensionLabelRenderer {
 		double uz = rgx * fy;
 		billboard.rotationYXZ((float) Math.PI - yaw, -pitch, 0);
 
-		BlockPos o = resolved.anchor();
+		BlockPos o = resolved.origin();
 		double ax = o.getX() - cam.x;
 		double ay = o.getY() - cam.y;
 		double az = o.getZ() - cam.z;

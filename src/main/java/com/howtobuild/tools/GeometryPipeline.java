@@ -71,29 +71,73 @@ public final class GeometryPipeline {
 			rotate(builder, context.rotation());
 		}
 
+		if (tool.verticalAnchor(settings) == VerticalAnchor.BASE) {
+			long below = builder.snapshot().stream().filter(p -> p.y() < 0).count();
+
+			// Never expected: base-anchored generators start at layer 0. Reported (not hidden) so it is caught by tests.
+			if (below > 0) builder.warn("⚠ Internal error: " + below + " blocks below the base layer. Please report this.");
+		}
+
 		applyPattern(builder, details);
 		applyVariation(builder, details.variation(), details.seed());
 		StairShapes.resolve(builder);
 		return GeometryResult.of(tool.id(), builder, tool.planeNormalAxis(settings, context));
 	}
 
-	/** Rotates every placement (and stair facing) clockwise about the vertical axis through the anchor. */
+	/**
+	 * Rotates every placement (and stair facing) clockwise about the vertical axis through the shape's <em>true</em>
+	 * centre, which is the middle of its centre cells: a block for a 1×1 centre, a block corner for a 2×2 centre. The
+	 * rotation is exact for 1×1 and 2×2 centres, so the footprint and centre never move; a mixed 1×2 centre cannot turn
+	 * 90° on the grid exactly and rounds consistently (geometry and centre cells move together).
+	 */
 	static void rotate(GeometryBuilder builder, int quarterTurns) {
-		List<Placement> all = builder.snapshot();
-		builder.clear();
+		for (int turn = 0; turn < (quarterTurns & 3); turn++) {
+			int[] centre = doubledCentre(builder.centreCells());
+			List<Placement> all = builder.snapshot();
+			builder.clear();
 
-		for (Placement p : all) {
-			int[] r = rotateXZ(p.x(), p.z(), quarterTurns);
-			builder.put(new Placement(r[0], p.y(), r[1], p.role(), p.shape().rotated(quarterTurns), p.variant(), p.mirrored()));
+			for (Placement p : all) {
+				int[] r = rotateAbout(p.x(), p.z(), centre[0], centre[1]);
+				builder.put(new Placement(r[0], p.y(), r[1], p.role(), p.shape().rotated(1), p.variant(), p.mirrored()));
+			}
+
+			rotateCells(builder.centreCells(), centre);
+			rotateCells(builder.guides(), centre);
+		}
+	}
+
+	private static void rotateCells(List<int[]> cells, int[] centre) {
+		List<int[]> copy = new ArrayList<>(cells);
+		cells.clear();
+
+		for (int[] c : copy) {
+			int[] r = rotateAbout(c[0], c[2], centre[0], centre[1]);
+			cells.add(new int[] {r[0], c[1], r[1]});
+		}
+	}
+
+	/** Doubled (x, z) of the middle of the centre cells; (1, 1), the anchor block's middle, if there are none. */
+	static int[] doubledCentre(List<int[]> centreCells) {
+		if (centreCells.isEmpty()) return new int[] {1, 1};
+
+		int minX = Integer.MAX_VALUE;
+		int maxX = Integer.MIN_VALUE;
+		int minZ = Integer.MAX_VALUE;
+		int maxZ = Integer.MIN_VALUE;
+
+		for (int[] c : centreCells) {
+			minX = Math.min(minX, c[0]);
+			maxX = Math.max(maxX, c[0]);
+			minZ = Math.min(minZ, c[2]);
+			maxZ = Math.max(maxZ, c[2]);
 		}
 
-		List<int[]> centres = new ArrayList<>(builder.centreCells());
-		builder.centreCells().clear();
+		return new int[] {minX + maxX + 1, minZ + maxZ + 1};
+	}
 
-		for (int[] c : centres) {
-			int[] r = rotateXZ(c[0], c[2], quarterTurns);
-			builder.centreCell(r[0], c[1], r[1]);
-		}
+	/** One clockwise quarter turn (viewed from above) of block (x, z) about the doubled centre (a, b). */
+	public static int[] rotateAbout(int x, int z, int a, int b) {
+		return new int[] {Math.floorDiv(a + b - (2 * z + 1) - 1, 2), Math.floorDiv(b - a + (2 * x + 1) - 1, 2)};
 	}
 
 	/** Clockwise (viewed from above) rotation of the cell (x, z) about the anchor block's centre. */

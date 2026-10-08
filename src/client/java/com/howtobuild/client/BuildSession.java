@@ -23,6 +23,7 @@ import com.howtobuild.config.MaterialSlot;
 import com.howtobuild.geometry.GeometryResult;
 import com.howtobuild.geometry.MaterialRole;
 import com.howtobuild.geometry.Placement;
+import com.howtobuild.geometry.WorldTransform;
 import com.howtobuild.materials.MaterialResolver;
 import com.howtobuild.render.LabelSet;
 import com.howtobuild.render.RenderMesh;
@@ -82,11 +83,16 @@ public final class BuildSession {
 	private long generatedAt;
 
 	/**
-	 * Geometry with resolved block states. Placements are relative to {@code anchor}; {@code mirrorPlaneX/Z} are the
+	 * Geometry with resolved block states. Placements are relative to {@code origin} (= the transform's origin); {@code mirrorPlaneX/Z} are the
 	 * doubled mirror plane coordinates relative to the anchor (see {@link MirrorTransform#planeDoubled}).
 	 */
-	public record Resolved(GeometryResult result, BlockPos anchor, BlockState[] states, boolean[] buildable, MirrorSettings mirror,
-			int mirrorPlaneX, int mirrorPlaneZ) {
+	public record Resolved(GeometryResult result, BlockPos origin, WorldTransform transform, BlockState[] states, boolean[] buildable,
+			MirrorSettings mirror, int mirrorPlaneX, int mirrorPlaneZ) {
+		/** World position of placement {@code i}. */
+		public BlockPos worldPos(int i) {
+			Placement p = result.placements().get(i);
+			return new BlockPos(transform.x(p.x()), transform.y(p.y()), transform.z(p.z()));
+		}
 	}
 
 	private BuildSession() {
@@ -106,12 +112,21 @@ public final class BuildSession {
 		return anchor != null && level == Minecraft.getInstance().level;
 	}
 
-	/** The block the preview is centred on, including the configured offset. */
-	public @Nullable BlockPos origin() {
+	/**
+	 * The single anchor → world transform: the selected centre plus the configured X / Y / Z offset. Every consumer
+	 * (hologram, labels, progress, command building) places blocks through this, so they cannot disagree.
+	 */
+	public @Nullable WorldTransform transform() {
 		if (!hasAnchor()) return null;
 
 		HowToBuildConfig c = HowToBuildConfig.get();
-		return anchor.offset(c.offsetX, c.offsetY, c.offsetZ);
+		return new WorldTransform(anchor.getX(), anchor.getY(), anchor.getZ(), c.offsetX, c.offsetY, c.offsetZ);
+	}
+
+	/** The block the preview is centred on, including the configured offset. */
+	public @Nullable BlockPos origin() {
+		WorldTransform t = transform();
+		return t == null ? null : new BlockPos(t.originX(), t.originY(), t.originZ());
 	}
 
 	public void setAnchor(BlockPos pos) {
@@ -237,9 +252,11 @@ public final class BuildSession {
 
 	/** Mirrored geometry with resolved block states, or null if nothing is placed in this world. */
 	public @Nullable Resolved resolved() {
-		BlockPos origin = origin();
+		WorldTransform transform = transform();
 
-		if (geometry == null || origin == null) return null;
+		if (geometry == null || transform == null) return null;
+
+		BlockPos origin = new BlockPos(transform.originX(), transform.originY(), transform.originZ());
 
 		HowToBuildConfig config = HowToBuildConfig.get();
 		MirrorSettings mirror = config.mirror.toSettings();
@@ -267,7 +284,7 @@ public final class BuildSession {
 				buildable[i] = !p.mirrored() || mirror.mode().buildsMirror();
 			}
 
-			resolved = new Resolved(result, origin, states, buildable, mirror,
+			resolved = new Resolved(result, origin, transform, states, buildable, mirror,
 					MirrorTransform.planeDoubled(centreX, mirror.twoWideX(), mirror.alignX(), mirror.offsetX()),
 					MirrorTransform.planeDoubled(centreZ, mirror.twoWideZ(), mirror.alignZ(), mirror.offsetZ()));
 			resolvedKey = key;
@@ -323,13 +340,13 @@ public final class BuildSession {
 			MaterialResolver resolver = new MaterialResolver(config.materials);
 			List<StatePlacement> blocks = new ArrayList<>();
 			List<Placement> placements = r.result().placements();
-			BlockPos o = r.anchor();
+			WorldTransform t = r.transform();
 
 			for (int i = 0; i < placements.size(); i++) {
 				if (!r.buildable()[i]) continue;
 
 				Placement p = placements.get(i);
-				blocks.add(new StatePlacement(o.getX() + p.x(), o.getY() + p.y(), o.getZ() + p.z(), resolver.commandString(r.states()[i])));
+				blocks.add(new StatePlacement(t.x(p.x()), t.y(p.y()), t.z(p.z()), resolver.commandString(r.states()[i])));
 			}
 
 			plan = CommandPlanner.plan(blocks, new CommandPlanner.Options(config.build.maxFillVolume, config.build.keepExisting));

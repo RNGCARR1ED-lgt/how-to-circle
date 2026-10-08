@@ -1,5 +1,8 @@
 package com.howtobuild.input;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.jspecify.annotations.Nullable;
 
 import net.minecraft.client.Minecraft;
@@ -244,6 +247,27 @@ public final class CentreSelectionHandler {
 
 		HowToBuildConfig c = HowToBuildConfig.get();
 		return bounds.offset(c.offsetX, c.offsetY, c.offsetZ);
+	}
+
+	/**
+	 * The centre cells (1×1, 2×2, …) the current shape would get if the marker were confirmed, relative to the marker
+	 * block (the configured offset included), so the exact centre is visible before clicking.
+	 */
+	public List<int[]> previewCentres() {
+		if (!active || target == null || mode != Target.SHAPE) return List.of();
+
+		GeometryResult geometry = BuildSession.get().geometry();
+
+		if (geometry == null) return List.of();
+
+		HowToBuildConfig c = HowToBuildConfig.get();
+		List<int[]> cells = new ArrayList<>();
+
+		for (int[] cell : geometry.centreCells()) {
+			cells.add(new int[] {cell[0] + c.offsetX, cell[1] + c.offsetY, cell[2] + c.offsetZ});
+		}
+
+		return cells;
 	}
 
 	/** A short status line for the HUD while selecting. */
